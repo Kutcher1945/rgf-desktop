@@ -1,0 +1,90 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme variables ──────────────────────────────────────────── */
+:root, [data-theme="dark"] {
+  --surface-0: #0d1629;
+  --surface-1: #111e35;
+  --surface-hover: rgba(255,255,255,0.04);
+  --border:    rgba(255,255,255,0.07);
+  --border-md: rgba(255,255,255,0.10);
+  --divide:    rgba(255,255,255,0.05);
+  --divide-md: rgba(255,255,255,0.06);
+  --text-1: rgba(255,255,255,0.90);
+  --text-2: rgba(255,255,255,0.75);
+  --text-3: rgba(255,255,255,0.40);
+  --text-4: rgba(255,255,255,0.25);
+  --text-5: rgba(255,255,255,0.20);
+  --badge-ok-bg:   rgba(6,78,59,0.4);   --badge-ok-fg:   #34d399;
+  --badge-warn-bg: rgba(120,53,15,0.4); --badge-warn-fg: #fbbf24;
+  --badge-err-bg:  rgba(127,29,29,0.4); --badge-err-fg:  #f87171;
+  --badge-info-bg: rgba(37,99,235,0.15); --badge-info-fg: #60a5fa;
+  --accent-violet-bg:     rgba(109,40,217,0.15);
+  --accent-violet-border: rgba(167,139,250,0.40);
+  --accent-violet-fg:     #a78bfa;
+  --card-success-bg:     rgba(6,78,59,0.20);
+  --card-success-border: rgba(16,185,129,0.20);
+  --card-success-label:  rgba(52,211,153,0.70);
+  --card-success-value:  #34d399;
+}
+
+[data-theme="light"] {
+  --surface-0: #f0f2f7;
+  --surface-1: #ffffff;
+  --surface-hover: rgba(0,0,0,0.03);
+  --border:    rgba(0,0,0,0.08);
+  --border-md: rgba(0,0,0,0.12);
+  --divide:    rgba(0,0,0,0.06);
+  --divide-md: rgba(0,0,0,0.07);
+  --text-1: rgba(15,28,60,0.90);
+  --text-2: rgba(15,28,60,0.70);
+  --text-3: rgba(15,28,60,0.50);
+  --text-4: rgba(15,28,60,0.35);
+  --text-5: rgba(15,28,60,0.25);
+  --badge-ok-bg:   #d1fae5; --badge-ok-fg:   #065f46;
+  --badge-warn-bg: #fef3c7; --badge-warn-fg: #92400e;
+  --badge-err-bg:  #fee2e2; --badge-err-fg:  #dc2626;
+  --badge-info-bg: #dbeafe; --badge-info-fg: #1d4ed8;
+  --accent-violet-bg:     #ede9fe;
+  --accent-violet-border: rgba(109,40,217,0.30);
+  --accent-violet-fg:     #6d28d9;
+  --card-success-bg:     #ecfdf5;
+  --card-success-border: rgba(16,185,129,0.25);
+  --card-success-label:  rgba(5,150,105,0.70);
+  --card-success-value:  #059669;
+}
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: var(--surface-0);
+    color: var(--text-1);
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface-0); }
+  ::-webkit-scrollbar-thumb { background: var(--border-md); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-5); }
+}
+
+@layer utilities {
+  .card {
+    @apply rounded-xl shadow-none;
+    background-color: var(--surface-1);
+    border: 1px solid var(--border);
+  }
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(-10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)     scale(1); }
+}
+
+.animate-modal {
+  animation: modal-in 0.18s ease-out both;
+}
