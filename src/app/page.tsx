@@ -61,6 +61,52 @@ function ActionBadge({ action }: { action: string }) {
   )
 }
 
+const PAGE_SIZE = 25
+
+function Pagination({ page, total, pageSize, onChange }: {
+  page: number; total: number; pageSize: number; onChange: (p: number) => void
+}) {
+  const totalPages = Math.ceil(total / pageSize)
+  if (totalPages <= 1) return null
+  const pages: (number | '...')[] = []
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i)
+  } else {
+    pages.push(1)
+    if (page > 3) pages.push('...')
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i)
+    if (page < totalPages - 2) pages.push('...')
+    pages.push(totalPages)
+  }
+  const from = (page - 1) * pageSize + 1
+  const to = Math.min(page * pageSize, total)
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5 border-t"
+         style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
+      <span className="text-[10px]" style={{ color: 'var(--text-4)' }}>{from}–{to} из {total}</span>
+      <div className="flex items-center gap-0.5">
+        <button disabled={page === 1} onClick={() => onChange(page - 1)}
+          className="w-6 h-6 rounded flex items-center justify-center text-[13px] disabled:opacity-30 hover:bg-gov-blue/10 transition-colors"
+          style={{ color: 'var(--text-3)' }}>‹</button>
+        {pages.map((p, i) =>
+          p === '...' ? (
+            <span key={`el${i}`} className="w-6 text-center text-[10px]" style={{ color: 'var(--text-4)' }}>…</span>
+          ) : (
+            <button key={p} onClick={() => onChange(p as number)}
+              className="w-6 h-6 rounded text-[10px] font-semibold transition-all hover:bg-gov-blue/10"
+              style={page === p ? { background: '#3772ff', color: '#fff' } : { color: 'var(--text-3)' }}>
+              {p}
+            </button>
+          )
+        )}
+        <button disabled={page === totalPages} onClick={() => onChange(page + 1)}
+          className="w-6 h-6 rounded flex items-center justify-center text-[13px] disabled:opacity-30 hover:bg-gov-blue/10 transition-colors"
+          style={{ color: 'var(--text-3)' }}>›</button>
+      </div>
+    </div>
+  )
+}
+
 export default function ImportPage() {
   const [orgs, setOrgs] = useState<Org[]>([])
   const [selectedOrgId, setSelectedOrgId] = useState('')
@@ -83,13 +129,15 @@ export default function ImportPage() {
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
+  const [historyPage, setHistoryPage] = useState(1)
+  const [auditPage, setAuditPage] = useState(1)
 
   const autoPreviewing = useRef<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const refreshRecords = useCallback(() => {
     getRecords()
-      .then(res => setRecentRecords(res.records))
+      .then(res => { setRecentRecords(res.records); setHistoryPage(1) })
       .catch(() => {})
       .finally(() => setRecordsLoading(false))
   }, [])
@@ -98,7 +146,7 @@ export default function ImportPage() {
     setAuditLoading(true)
     setAuditError(null)
     getAuditLog()
-      .then(res => setAuditLog(res.entries))
+      .then(res => { setAuditLog(res.entries); setAuditPage(1) })
       .catch(err => setAuditError(err.message))
       .finally(() => setAuditLoading(false))
   }, [])
@@ -231,6 +279,8 @@ export default function ImportPage() {
   const totalRec   = recentRecords.length
   const successRec = recentRecords.filter(r => r.status === 'success').length
   const lastImport = recentRecords[0]?.created_at
+  const pagedRecords = recentRecords.slice((historyPage - 1) * PAGE_SIZE, historyPage * PAGE_SIZE)
+  const pagedAudit   = auditLog.slice((auditPage - 1) * PAGE_SIZE, auditPage * PAGE_SIZE)
 
   return (
     <div className="flex h-[calc(100vh-56px)] overflow-hidden">
@@ -566,7 +616,7 @@ export default function ImportPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {recentRecords.map((r, idx) => (
+                    {pagedRecords.map((r, idx) => (
                       <tr
                         key={r.id}
                         className="transition-colors border-b"
@@ -623,6 +673,7 @@ export default function ImportPage() {
                     ))}
                   </tbody>
                 </table>
+                <Pagination page={historyPage} total={recentRecords.length} pageSize={PAGE_SIZE} onChange={setHistoryPage} />
               </div>
             )
           )}
@@ -660,7 +711,7 @@ export default function ImportPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {auditLog.map((e, idx) => (
+                    {pagedAudit.map((e, idx) => (
                       <tr
                         key={e.id}
                         className="transition-colors border-b"
@@ -691,6 +742,7 @@ export default function ImportPage() {
                     ))}
                   </tbody>
                 </table>
+                <Pagination page={auditPage} total={auditLog.length} pageSize={PAGE_SIZE} onChange={setAuditPage} />
               </div>
             )
           )}
