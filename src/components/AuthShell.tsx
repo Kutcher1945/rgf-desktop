@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import NavBar from './NavBar'
 import { authLogin } from '@/lib/api'
 
 const AUTH_KEY = 'rgf_auth'
+const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'https://exp-admin.smartalmaty.kz'
 
 export default function AuthShell({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState<boolean | null>(null)
@@ -12,8 +13,16 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [logs, setLogs] = useState<string[]>([])
+  const [showLogs, setShowLogs] = useState(false)
   const loginRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
+  const logsEndRef = useRef<HTMLDivElement>(null)
+
+  const addLog = useCallback((msg: string) => {
+    const ts = new Date().toISOString().substring(11, 23)
+    setLogs(prev => [...prev, `[${ts}] ${msg}`])
+  }, [])
 
   useEffect(() => {
     setAuthed(localStorage.getItem(AUTH_KEY) === '1')
@@ -22,6 +31,10 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (authed === false) loginRef.current?.focus()
   }, [authed])
+
+  useEffect(() => {
+    if (showLogs) logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [logs, showLogs])
 
   const handleLogout = () => {
     localStorage.removeItem(AUTH_KEY)
@@ -36,17 +49,38 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
     if (!login.trim() || !password.trim()) return
     setLoading(true)
     setError(null)
+
+    // Capture environment info on each attempt
+    addLog('─── Login attempt ───')
+    addLog(`URL: ${BASE}/api/rgf/auth/`)
+    addLog(`navigator.onLine: ${navigator.onLine}`)
+    addLog(`Tauri context: ${!!(window as any).__TAURI_INTERNALS__}`)
+    addLog(`UA: ${navigator.userAgent.slice(0, 100)}`)
+
     try {
       await authLogin(login, password)
+      addLog('✓ Success')
       localStorage.setItem(AUTH_KEY, '1')
       setAuthed(true)
     } catch (err: any) {
+      addLog(`✗ name: ${err.name}`)
+      addLog(`✗ message: ${err.message}`)
+      if (err.cause != null) addLog(`✗ cause: ${String(err.cause)}`)
+      if (err.stack) {
+        const stackLines = String(err.stack).split('\n').slice(0, 5)
+        stackLines.forEach(l => addLog(`  ${l.trim()}`))
+      }
       setError(err.message)
       setPassword('')
       passwordRef.current?.focus()
+      setShowLogs(true)
     } finally {
       setLoading(false)
     }
+  }
+
+  const copyLogs = () => {
+    navigator.clipboard.writeText(logs.join('\n')).catch(() => {})
   }
 
   // Still hydrating
@@ -132,7 +166,57 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
             </form>
           </div>
 
-          <p className="text-center text-gov-navy-light/20 text-[11px] mt-6 uppercase tracking-widest">
+          {/* Debug logs panel */}
+          <div className="mt-3">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowLogs(v => !v)}
+                className="text-[10px] text-gov-navy-light/30 hover:text-gov-navy-light/60 transition-colors px-1"
+              >
+                {showLogs ? '▲ Скрыть логи' : '▼ Логи отладки'}{logs.length > 0 ? ` (${logs.length})` : ''}
+              </button>
+              {showLogs && logs.length > 0 && (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={copyLogs}
+                    className="text-[10px] text-gov-navy-light/30 hover:text-gov-navy-light/60 transition-colors px-1"
+                  >
+                    Копировать
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogs([])}
+                    className="text-[10px] text-gov-navy-light/30 hover:text-gov-navy-light/60 transition-colors px-1"
+                  >
+                    Очистить
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {showLogs && (
+              <div className="mt-1.5 bg-black/85 rounded-xl p-3 text-[10px] font-mono text-green-400 max-h-52 overflow-y-auto">
+                {logs.length === 0 ? (
+                  <p className="text-white/30 italic">Нет записей. Попробуйте войти.</p>
+                ) : (
+                  logs.map((l, i) => (
+                    <p
+                      key={i}
+                      className="whitespace-pre-wrap break-all leading-relaxed"
+                      style={{ color: l.includes('✗') ? '#f87171' : l.startsWith('[') && l.includes('───') ? '#facc15' : undefined }}
+                    >
+                      {l}
+                    </p>
+                  ))
+                )}
+                <div ref={logsEndRef} />
+              </div>
+            )}
+          </div>
+
+          <p className="text-center text-gov-navy-light/20 text-[11px] mt-4 uppercase tracking-widest">
             Алматы · Акимат
           </p>
         </div>
