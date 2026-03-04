@@ -11,7 +11,17 @@ export async function authLogin(login: string, password: string): Promise<void> 
       body: JSON.stringify({ login, password }),
     })
   } catch (e: any) {
-    throw new Error(`Не удалось подключиться к серверу (${BASE}). Проверьте интернет-соединение.\n\nТехнически: ${e.message}`)
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+    const lines: string[] = []
+    if (!online) {
+      lines.push('Устройство не подключено к интернету.')
+    } else {
+      lines.push(`Сервер недоступен: ${BASE}`)
+      lines.push('Возможные причины: брандмауэр/антивирус блокирует приложение, VPN, прокси, или сервер не работает.')
+    }
+    lines.push(`\nОшибка: ${e.name ?? 'Error'}: ${e.message}`)
+    if (e.cause) lines.push(`Причина: ${String(e.cause)}`)
+    throw new Error(lines.join('\n'))
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
