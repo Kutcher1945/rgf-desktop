@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:3000",
-    "beforeBuildCommand": "NEXT_EXPORT=true npm run build",
+    "beforeBuildCommand": "npx cross-env NEXT_EXPORT=true npm run build",
     "frontendDist": "../out"
   },
   "app": {
@@ -28,7 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb"],
+    "targets": ["deb", "nsis", "msi"],
     "icon": []
   }
 }
