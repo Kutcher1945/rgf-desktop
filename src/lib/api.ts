@@ -2,10 +2,14 @@
 // In Tauri production build (NEXT_EXPORT=true): defaults to full production URL
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'https://exp-admin.smartalmaty.kz'
 
+// Use Tauri HTTP plugin (routes through Rust/reqwest) to bypass WebView2 network restrictions.
+// Falls back to native fetch when running outside of Tauri (e.g. Next.js dev server).
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
+
 export async function authLogin(login: string, password: string): Promise<void> {
   let res: Response
   try {
-    res = await fetch(`${BASE}/api/rgf/auth/`, {
+    res = await tauriFetch(`${BASE}/api/rgf/auth/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ login, password }),
@@ -132,7 +136,7 @@ export interface ParsedImportResult {
 }
 
 export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string): Promise<ParsedImportResult> {
-  const res = await fetch(`${BASE}/api/rgf/import-parsed/`, {
+  const res = await tauriFetch(`${BASE}/api/rgf/import-parsed/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...data }),
@@ -147,7 +151,7 @@ export async function importParsed(guId: string, data: PreviewData, filename?: s
 export async function aiAnalyzeDocument(file: File): Promise<PreviewResult> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${BASE}/api/rgf/ai-analyze/`, { method: 'POST', body: form })
+  const res = await tauriFetch(`${BASE}/api/rgf/ai-analyze/`, { method: 'POST', body: form })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error((err as any).error || `HTTP ${res.status}`)
@@ -158,7 +162,7 @@ export async function aiAnalyzeDocument(file: File): Promise<PreviewResult> {
 export async function previewDocument(file: File): Promise<PreviewResult> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${BASE}/api/rgf/preview/`, { method: 'POST', body: form })
+  const res = await tauriFetch(`${BASE}/api/rgf/preview/`, { method: 'POST', body: form })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error((err as any).error || `HTTP ${res.status}`)
@@ -167,7 +171,7 @@ export async function previewDocument(file: File): Promise<PreviewResult> {
 }
 
 export async function getOrganizations(): Promise<Org[]> {
-  const res = await fetch(`${BASE}/api/rgf/organizations/`)
+  const res = await tauriFetch(`${BASE}/api/rgf/organizations/`)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
@@ -177,7 +181,7 @@ export async function importDocuments(files: File[], guId?: string): Promise<Imp
   files.forEach(f => form.append('files', f))
   if (guId) form.append('gu_id', guId)
 
-  const res = await fetch(`${BASE}/api/rgf/import/`, { method: 'POST', body: form })
+  const res = await tauriFetch(`${BASE}/api/rgf/import/`, { method: 'POST', body: form })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error((err as any).error || `HTTP ${res.status}`)
@@ -186,19 +190,19 @@ export async function importDocuments(files: File[], guId?: string): Promise<Imp
 }
 
 export async function getRecords(): Promise<RecordsResponse> {
-  const res = await fetch(`${BASE}/api/rgf/records/`)
+  const res = await tauriFetch(`${BASE}/api/rgf/records/`)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
 
 export async function getAuditLog(): Promise<AuditLogResponse> {
-  const res = await fetch(`${BASE}/api/rgf/audit/`)
+  const res = await tauriFetch(`${BASE}/api/rgf/audit/`)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
 
 export async function deleteRecords(recordIds: number[]): Promise<DeleteResponse> {
-  const res = await fetch(`${BASE}/api/rgf/records/delete/`, {
+  const res = await tauriFetch(`${BASE}/api/rgf/records/delete/`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ record_ids: recordIds, confirm: true }),
