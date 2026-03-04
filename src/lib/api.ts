@@ -56,6 +56,8 @@ export interface ImportResult {
   error?: string
   warnings?: string[]
   stats?: { rights: number; responsibilities: number; tasks: number; functions: number }
+  functions_created?: number
+  functions_failed?: number
   url?: string
 }
 
@@ -141,6 +143,8 @@ export interface ParsedImportResult {
   warnings?: string[]
   url?: string
   stats?: { rights: number; responsibilities: number; tasks: number; functions: number }
+  functions_created?: number
+  functions_failed?: number
 }
 
 export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string): Promise<ParsedImportResult> {
@@ -206,6 +210,36 @@ export async function getRecords(): Promise<RecordsResponse> {
 export async function getAuditLog(): Promise<AuditLogResponse> {
   const res = await tauriFetch(`${BASE}/api/rgf/audit/`)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export interface CreateFunctionResult {
+  success: boolean
+  function_id: number | null
+  error: string | null
+  retry_after?: number
+}
+
+export async function createDepartmentFunction(
+  positionDepartmentId: number,
+  guId: string,
+  guName: string,
+  functionText: string,
+): Promise<CreateFunctionResult> {
+  const res = await tauriFetch(`${BASE}/api/rgf/create-department-function/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      position_department_id: positionDepartmentId,
+      gu_id: guId,
+      gu_name: guName,
+      function_text: functionText,
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any).error || `HTTP ${res.status}`)
+  }
   return res.json()
 }
 

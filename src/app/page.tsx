@@ -131,6 +131,7 @@ export default function ImportPage() {
   const [auditError, setAuditError] = useState<string | null>(null)
   const [historyPage, setHistoryPage] = useState(1)
   const [auditPage, setAuditPage] = useState(1)
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number; filename: string } | null>(null)
 
   const autoPreviewing = useRef<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -231,44 +232,58 @@ export default function ImportPage() {
     setImporting(true)
     setImportError(null)
     setResults(null)
-    try {
-      const allResults: ImportResult[] = []
-      const editedFiles = files.filter(f => savedEdits.has(f.name))
-      const rawFiles = files.filter(f => !savedEdits.has(f.name))
 
+    const editedFiles = files.filter(f => savedEdits.has(f.name))
+    const rawFiles = files.filter(f => !savedEdits.has(f.name))
+    const total = editedFiles.length + rawFiles.length
+    const allResults: ImportResult[] = []
+    let current = 0
+
+    setImportProgress({ current: 0, total, filename: '' })
+
+    try {
       for (const f of editedFiles) {
+        current++
+        setImportProgress({ current, total, filename: f.name })
         const { data, guId } = savedEdits.get(f.name)!
         const effectiveGuId = selectedOrgId || guId
         if (!effectiveGuId) {
           allResults.push({ filename: f.name, status: 'error', error: 'Организация не определена' })
-          continue
+        } else {
+          try {
+            const guName = previewCache.get(f.name)?.gu_name ?? ''
+            const r = await importParsed(effectiveGuId, data, f.name, guName)
+            allResults.push({ filename: f.name, ...r })
+          } catch (err: any) {
+            allResults.push({ filename: f.name, status: 'error', error: err.message })
+          }
         }
+        setResults([...allResults])
+      }
+
+      for (const f of rawFiles) {
+        current++
+        setImportProgress({ current, total, filename: f.name })
         try {
-          const guName = previewCache.get(f.name)?.gu_name ?? ''
-          const r = await importParsed(effectiveGuId, data, f.name, guName)
-          allResults.push({ filename: f.name, ...r })
+          const res = await importDocuments([f], selectedOrgId || undefined)
+          allResults.push(...res.results)
         } catch (err: any) {
           allResults.push({ filename: f.name, status: 'error', error: err.message })
         }
+        setResults([...allResults])
       }
 
-      if (rawFiles.length) {
-        const res = await importDocuments(rawFiles, selectedOrgId || undefined)
-        allResults.push(...res.results)
-      }
-
-      setResults(allResults)
       setFiles([])
       setSavedEdits(new Map())
       setPreviewCache(new Map())
       autoPreviewing.current.clear()
       refreshRecords()
-      // Refresh audit log if it was previously loaded
       if (activeTab === 'audit') fetchAuditLog()
     } catch (err: any) {
       setImportError(err.message)
     } finally {
       setImporting(false)
+      setImportProgress(null)
     }
   }
 
@@ -476,7 +491,7 @@ export default function ImportPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] font-semibold truncate" style={{ color: 'var(--text-2)' }}>{r.filename}</p>
                       <p className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--text-3)' }}>
-                        {r.status === 'success' && <>ID: <span className="font-mono font-semibold text-gov-blue">{r.record_id}</span>{r.gu_name ? ` · ${r.gu_name}` : ''}</>}
+                        {r.status === 'success' && <>ID: <span className="font-mono font-semibold text-gov-blue">{r.record_id}</span>{r.gu_name ? ` · ${r.gu_name}` : ''}{(r.functions_created ?? 0) > 0 ? <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'var(--badge-ok-bg)', color: 'var(--badge-ok-fg)' }}>+{r.functions_created} функц.</span> : null}</>}
                         {r.status === 'skipped' && r.skip_reason}
                         {r.status === 'error'   && r.error}
                       </p>
@@ -495,21 +510,47 @@ export default function ImportPage() {
         </div>
 
         {/* ── Sticky import button ─────────────────────────────── */}
-        <div className="shrink-0 p-4 border-t" style={{ background: 'var(--surface-1)', borderColor: 'var(--border)' }}>
-          <button
-            onClick={handleImport}
-            disabled={!files.length || importing}
-            className="w-full py-2.5 bg-gov-blue hover:bg-gov-blue-hover active:bg-gov-blue-active disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl text-sm transition-all shadow-sm hover:shadow-md"
-          >
-            {importing
-              ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Импортируем {files.length} файл(а)...
+        <div className="shrink-0 border-t" style={{ background: 'var(--surface-1)', borderColor: 'var(--border)' }}>
+          {/* Progress bar */}
+          {importing && importProgress && importProgress.total > 0 && (
+            <div className="px-4 pt-3 pb-1">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] truncate max-w-[75%]" style={{ color: 'var(--text-3)' }}>
+                  {importProgress.filename || 'Подготовка...'}
                 </span>
-              )
-              : `Импортировать${files.length ? ` (${files.length})` : ''}`}
-          </button>
+                <span className="text-[10px] font-semibold tabular-nums" style={{ color: 'var(--text-3)' }}>
+                  {importProgress.current}/{importProgress.total}
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-500 ease-out"
+                  style={{
+                    width: `${Math.round((importProgress.current / importProgress.total) * 100)}%`,
+                    background: 'var(--gov-blue)',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          <div className="p-4">
+            <button
+              onClick={handleImport}
+              disabled={!files.length || importing}
+              className="w-full py-2.5 bg-gov-blue hover:bg-gov-blue-hover active:bg-gov-blue-active disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl text-sm transition-all shadow-sm hover:shadow-md"
+            >
+              {importing
+                ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    {importProgress
+                      ? `Файл ${importProgress.current} из ${importProgress.total}...`
+                      : 'Импортируем...'}
+                  </span>
+                )
+                : `Импортировать${files.length ? ` (${files.length})` : ''}`}
+            </button>
+          </div>
         </div>
       </div>
 

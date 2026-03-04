@@ -5,9 +5,15 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "http:default",
     {
       "identifier": "http:allow-fetch",
-      "allow": [{ "url": "https://exp-admin.smartalmaty.kz/**" }]
+      "allow": [
+        { "url": "https://exp-admin.smartalmaty.kz/**" },
+        { "url": "http://localhost:8000/**" },
+        { "url": "http://localhost:3000/**" },
+        { "url": "http://127.0.0.1:8000/**" }
+      ]
     }
   ]
 }
