@@ -111,9 +111,9 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
               </div>
 
               {error && (
-                <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600">
-                  <span>✗</span>
-                  <span>{error}</span>
+                <div className="flex items-start gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600">
+                  <span className="shrink-0 mt-0.5">✗</span>
+                  <span className="whitespace-pre-wrap break-words">{error}</span>
                 </div>
               )}
 

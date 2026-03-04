@@ -3,14 +3,19 @@
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'https://exp-admin.smartalmaty.kz'
 
 export async function authLogin(login: string, password: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/rgf/auth/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ login, password }),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${BASE}/api/rgf/auth/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login, password }),
+    })
+  } catch (e: any) {
+    throw new Error(`Не удалось подключиться к серверу (${BASE}). Проверьте интернет-соединение.\n\nТехнически: ${e.message}`)
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error((err as any).error || `HTTP ${res.status}`)
+    throw new Error((err as any).error || `Сервер вернул ошибку HTTP ${res.status}`)
   }
 }
 
