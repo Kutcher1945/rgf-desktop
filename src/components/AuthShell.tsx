@@ -63,14 +63,19 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       localStorage.setItem(AUTH_KEY, '1')
       setAuthed(true)
     } catch (err: any) {
-      addLog(`✗ name: ${err.name}`)
-      addLog(`✗ message: ${err.message}`)
-      if (err.cause != null) addLog(`✗ cause: ${String(err.cause)}`)
-      if (err.stack) {
-        const stackLines = String(err.stack).split('\n').slice(0, 5)
-        stackLines.forEach(l => addLog(`  ${l.trim()}`))
+      // Raw plugin error (attached by api.ts)
+      if (err.__raw) {
+        addLog(`RAW type: ${err.__raw.type}`)
+        addLog(`RAW str:  ${err.__raw.str}`)
+        addLog(`RAW json: ${err.__raw.json}`)
       }
-      setError(err.message)
+      addLog(`✗ name: ${err?.name}`)
+      addLog(`✗ message: ${err?.message}`)
+      if (err?.cause != null) addLog(`✗ cause: ${String(err.cause)}`)
+      if (err?.stack) {
+        String(err.stack).split('\n').slice(0, 4).forEach(l => addLog(`  ${l.trim()}`))
+      }
+      setError(err?.message ?? String(err))
       setPassword('')
       passwordRef.current?.focus()
       setShowLogs(true)

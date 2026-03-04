@@ -16,16 +16,24 @@ export async function authLogin(login: string, password: string): Promise<void> 
     })
   } catch (e: any) {
     const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+    // Plugin may throw a plain string, an Error, or a Rust error object — extract message defensively
+    const rawMsg: string =
+      typeof e === 'string' ? e
+      : e?.message != null ? String(e.message)
+      : e?.toString?.() !== '[object Object]' ? String(e)
+      : JSON.stringify(e)
     const lines: string[] = []
     if (!online) {
       lines.push('Устройство не подключено к интернету.')
     } else {
       lines.push(`Сервер недоступен: ${BASE}`)
-      lines.push('Возможные причины: брандмауэр/антивирус блокирует приложение, VPN, прокси, или сервер не работает.')
     }
-    lines.push(`\nОшибка: ${e.name ?? 'Error'}: ${e.message}`)
-    if (e.cause) lines.push(`Причина: ${String(e.cause)}`)
-    throw new Error(lines.join('\n'))
+    lines.push(`\nОшибка: ${rawMsg || '(нет сообщения)'}`)
+    if (e?.cause != null) lines.push(`Причина: ${String(e.cause)}`)
+    const err = new Error(lines.join('\n'))
+    // Attach raw for debug panel
+    ;(err as any).__raw = { type: typeof e, str: String(e), json: (() => { try { return JSON.stringify(e) } catch { return '?' } })() }
+    throw err
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
