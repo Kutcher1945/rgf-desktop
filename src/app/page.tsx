@@ -111,7 +111,7 @@ export default function ImportPage() {
   useEffect(() => {
     getOrganizations()
       .then(setOrgs)
-      .catch(() => setApiError('Не удалось подключиться к API. Убедитесь, что Django запущен на порту 8000.'))
+      .catch(() => setApiError('Не удалось подключиться к API. Проверьте соединение с exp-admin.smartalmaty.kz'))
     refreshRecords()
   }, [refreshRecords])
 

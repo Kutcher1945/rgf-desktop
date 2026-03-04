@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:3000",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "NEXT_EXPORT=true npm run build",
     "frontendDist": "../out"
   },
   "app": {
@@ -23,12 +23,12 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' tauri: asset:; connect-src 'self' http://localhost:8000; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: tauri:"
+      "csp": "default-src 'self' tauri: asset:; connect-src 'self' https://exp-admin.smartalmaty.kz; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: asset: tauri:"
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb"],
     "icon": []
   }
 }

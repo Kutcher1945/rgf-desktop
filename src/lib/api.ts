@@ -1,4 +1,6 @@
-const BASE = 'http://localhost:8000'
+// In dev (npm run dev / tauri dev): NEXT_PUBLIC_API_BASE='' → uses Next.js proxy (no CORS)
+// In Tauri production build (NEXT_EXPORT=true): defaults to full production URL
+const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'https://exp-admin.smartalmaty.kz'
 
 export async function authLogin(login: string, password: string): Promise<void> {
   const res = await fetch(`${BASE}/api/rgf/auth/`, {
