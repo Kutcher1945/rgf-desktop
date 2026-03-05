@@ -6,7 +6,23 @@ const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'https://exp-admin.smartalmaty.
 // Falls back to native fetch when running outside of Tauri (e.g. Next.js dev server).
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 
-export async function authLogin(login: string, password: string): Promise<void> {
+const TOKEN_KEY = 'rgf_token'
+
+export function setAuthToken(token: string) {
+  localStorage.setItem(TOKEN_KEY, token)
+}
+
+export function clearAuthToken() {
+  localStorage.removeItem(TOKEN_KEY)
+}
+
+function authHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {}
+  const token = localStorage.getItem(TOKEN_KEY)
+  return token ? { 'Authorization': `Bearer ${token}` } : {}
+}
+
+export async function authLogin(login: string, password: string): Promise<string> {
   let res: Response
   try {
     res = await tauriFetch(`${BASE}/api/rgf/auth/`, {
@@ -39,6 +55,8 @@ export async function authLogin(login: string, password: string): Promise<void> 
     const err = await res.json().catch(() => ({}))
     throw new Error((err as any).error || `Сервер вернул ошибку HTTP ${res.status}`)
   }
+  const data = await res.json()
+  return (data as any).token as string
 }
 
 export interface Org {
@@ -150,7 +168,7 @@ export interface ParsedImportResult {
 export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string): Promise<ParsedImportResult> {
   const res = await tauriFetch(`${BASE}/api/rgf/import-parsed/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...data }),
   })
   if (!res.ok) {
@@ -163,7 +181,7 @@ export async function importParsed(guId: string, data: PreviewData, filename?: s
 export async function aiAnalyzeDocument(file: File): Promise<PreviewResult> {
   const form = new FormData()
   form.append('file', file)
-  const res = await tauriFetch(`${BASE}/api/rgf/ai-analyze/`, { method: 'POST', body: form })
+  const res = await tauriFetch(`${BASE}/api/rgf/ai-analyze/`, { method: 'POST', headers: authHeaders(), body: form })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error((err as any).error || `HTTP ${res.status}`)
@@ -174,7 +192,7 @@ export async function aiAnalyzeDocument(file: File): Promise<PreviewResult> {
 export async function previewDocument(file: File): Promise<PreviewResult> {
   const form = new FormData()
   form.append('file', file)
-  const res = await tauriFetch(`${BASE}/api/rgf/preview/`, { method: 'POST', body: form })
+  const res = await tauriFetch(`${BASE}/api/rgf/preview/`, { method: 'POST', headers: authHeaders(), body: form })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error((err as any).error || `HTTP ${res.status}`)
@@ -183,7 +201,7 @@ export async function previewDocument(file: File): Promise<PreviewResult> {
 }
 
 export async function getOrganizations(): Promise<Org[]> {
-  const res = await tauriFetch(`${BASE}/api/rgf/organizations/`)
+  const res = await tauriFetch(`${BASE}/api/rgf/organizations/`, { headers: authHeaders() })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
@@ -193,7 +211,7 @@ export async function importDocuments(files: File[], guId?: string): Promise<Imp
   files.forEach(f => form.append('files', f))
   if (guId) form.append('gu_id', guId)
 
-  const res = await tauriFetch(`${BASE}/api/rgf/import/`, { method: 'POST', body: form })
+  const res = await tauriFetch(`${BASE}/api/rgf/import/`, { method: 'POST', headers: authHeaders(), body: form })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error((err as any).error || `HTTP ${res.status}`)
@@ -202,13 +220,13 @@ export async function importDocuments(files: File[], guId?: string): Promise<Imp
 }
 
 export async function getRecords(): Promise<RecordsResponse> {
-  const res = await tauriFetch(`${BASE}/api/rgf/records/`)
+  const res = await tauriFetch(`${BASE}/api/rgf/records/`, { headers: authHeaders() })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
 
 export async function getAuditLog(): Promise<AuditLogResponse> {
-  const res = await tauriFetch(`${BASE}/api/rgf/audit/`)
+  const res = await tauriFetch(`${BASE}/api/rgf/audit/`, { headers: authHeaders() })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
@@ -246,7 +264,7 @@ export async function createDepartmentFunction(
 export async function deleteRecords(recordIds: number[]): Promise<DeleteResponse> {
   const res = await tauriFetch(`${BASE}/api/rgf/records/delete/`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ record_ids: recordIds, confirm: true }),
   })
   if (!res.ok) {

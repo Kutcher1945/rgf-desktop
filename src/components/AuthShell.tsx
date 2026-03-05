@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import NavBar from './NavBar'
-import { authLogin } from '@/lib/api'
+import { authLogin, setAuthToken, clearAuthToken } from '@/lib/api'
 
 const AUTH_KEY = 'rgf_auth'
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'https://exp-admin.smartalmaty.kz'
@@ -37,6 +37,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   }, [logs, showLogs])
 
   const handleLogout = () => {
+    clearAuthToken()
     localStorage.removeItem(AUTH_KEY)
     setLogin('')
     setPassword('')
@@ -58,7 +59,8 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
     addLog(`UA: ${navigator.userAgent.slice(0, 100)}`)
 
     try {
-      await authLogin(login, password)
+      const token = await authLogin(login, password)
+      setAuthToken(token)
       addLog('✓ Success')
       localStorage.setItem(AUTH_KEY, '1')
       setAuthed(true)
