@@ -5,7 +5,7 @@ import NavBar from './NavBar'
 import { authLogin, setAuthToken, clearAuthToken } from '@/lib/api'
 
 const AUTH_KEY = 'rgf_auth'
-const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'https://exp-admin.smartalmaty.kz'
+const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000'
 
 export default function AuthShell({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState<boolean | null>(null)

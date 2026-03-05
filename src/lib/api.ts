@@ -1,6 +1,6 @@
-// In dev (npm run dev / tauri dev): NEXT_PUBLIC_API_BASE='' → uses Next.js proxy (no CORS)
-// In Tauri production build (NEXT_EXPORT=true): defaults to full production URL
-const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'https://exp-admin.smartalmaty.kz'
+// Always points to the local Django backend (localhost:8000).
+// Override via NEXT_PUBLIC_API_BASE env var if needed.
+const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000'
 
 // Use Tauri HTTP plugin (routes through Rust/reqwest) to bypass WebView2 network restrictions.
 // Falls back to native fetch when running outside of Tauri (e.g. Next.js dev server).

@@ -160,7 +160,7 @@ export default function ImportPage() {
   useEffect(() => {
     getOrganizations()
       .then(setOrgs)
-      .catch(() => setApiError('Не удалось подключиться к API. Проверьте соединение с exp-admin.smartalmaty.kz'))
+      .catch(() => setApiError('Не удалось подключиться к API. Проверьте, что бэкенд запущен на localhost:8000'))
     refreshRecords()
   }, [refreshRecords])
 
