@@ -133,6 +133,10 @@ export default function ImportPage() {
   const [auditPage, setAuditPage] = useState(1)
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; filename: string } | null>(null)
 
+  const [orgSearch, setOrgSearch] = useState('')
+  const [orgDropOpen, setOrgDropOpen] = useState(false)
+  const orgDropRef = useRef<HTMLDivElement>(null)
+
   const autoPreviewing = useRef<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -163,6 +167,18 @@ export default function ImportPage() {
       .catch(() => setApiError('Не удалось подключиться к API. Проверьте, что бэкенд запущен на localhost:8000'))
     refreshRecords()
   }, [refreshRecords])
+
+  useEffect(() => {
+    if (!orgDropOpen) return
+    const handler = (e: MouseEvent) => {
+      if (orgDropRef.current && !orgDropRef.current.contains(e.target as Node)) {
+        setOrgDropOpen(false)
+        setOrgSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [orgDropOpen])
 
   useEffect(() => {
     files.forEach(file => {
@@ -325,19 +341,109 @@ export default function ImportPage() {
             <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-3)' }}>
               Организация
             </label>
-            <div className="relative">
-              <select
-                value={selectedOrgId}
-                onChange={e => setSelectedOrgId(e.target.value)}
-                className="w-full appearance-none bg-[var(--surface-0)] border border-[var(--border-md)] hover:border-gov-blue/40 focus:border-gov-blue focus:ring-2 focus:ring-gov-blue/10 rounded-lg px-3 py-2 text-[12px] text-[var(--text-2)] font-medium transition-all outline-none pr-7"
+            <div className="relative" ref={orgDropRef}>
+              {/* Trigger button */}
+              <button
+                type="button"
+                onClick={() => { setOrgDropOpen(v => !v); setOrgSearch('') }}
+                className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-[12px] font-medium transition-all outline-none border"
+                style={{
+                  background: 'var(--surface-0)',
+                  borderColor: orgDropOpen ? '#3772ff' : 'var(--border-md)',
+                  color: selectedOrgId ? 'var(--text-2)' : 'var(--text-4)',
+                  boxShadow: orgDropOpen ? '0 0 0 2px rgba(55,114,255,0.12)' : 'none',
+                }}
               >
-                <option value="">— Определить автоматически по имени файла —</option>
-                {orgs.map(org => (
-                  <option key={org.id} value={String(org.id)}>{org.name}</option>
-                ))}
-              </select>
-              <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px]"
-                    style={{ color: 'var(--text-4)' }}>▼</span>
+                <span className="truncate text-left">
+                  {selectedOrgId
+                    ? (orgs.find(o => String(o.id) === selectedOrgId)?.name ?? '—')
+                    : '— Определить автоматически по имени файла —'}
+                </span>
+                <svg className="w-3.5 h-3.5 shrink-0 ml-2 transition-transform" style={{ color: 'var(--text-4)', transform: orgDropOpen ? 'rotate(180deg)' : 'none' }}
+                     fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Dropdown panel */}
+              {orgDropOpen && (
+                <div
+                  className="absolute z-50 mt-1 w-full rounded-xl overflow-hidden"
+                  style={{
+                    background: 'var(--surface-1)',
+                    border: '1px solid var(--border-md)',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.35)',
+                  }}
+                >
+                  {/* Search input */}
+                  <div className="p-2 border-b" style={{ borderColor: 'var(--divide)' }}>
+                    <div className="relative">
+                      <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+                           style={{ color: 'var(--text-4)' }}
+                           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <circle cx="11" cy="11" r="8"/><path strokeLinecap="round" d="m21 21-4.35-4.35"/>
+                      </svg>
+                      <input
+                        autoFocus
+                        type="text"
+                        value={orgSearch}
+                        onChange={e => setOrgSearch(e.target.value)}
+                        placeholder="Поиск организации..."
+                        className="w-full pl-8 pr-3 py-1.5 rounded-lg text-[12px] outline-none border"
+                        style={{
+                          background: 'var(--surface-0)',
+                          borderColor: 'var(--border)',
+                          color: 'var(--text-1)',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Options list */}
+                  <div className="max-h-56 overflow-y-auto py-1">
+                    {/* Auto option */}
+                    {(orgSearch === '' || '— определить автоматически по имени файла —'.includes(orgSearch.toLowerCase())) && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedOrgId(''); setOrgDropOpen(false); setOrgSearch('') }}
+                        className="w-full text-left px-3 py-2 text-[12px] transition-colors"
+                        style={{
+                          color: selectedOrgId === '' ? '#3772ff' : 'var(--text-3)',
+                          background: selectedOrgId === '' ? 'rgba(55,114,255,0.08)' : 'transparent',
+                          fontStyle: 'italic',
+                        }}
+                        onMouseEnter={e => { if (selectedOrgId !== '') (e.currentTarget as HTMLElement).style.background = 'var(--surface-hover)' }}
+                        onMouseLeave={e => { if (selectedOrgId !== '') (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                      >
+                        — Определить автоматически по имени файла —
+                      </button>
+                    )}
+                    {orgs
+                      .filter(o => o.name.toLowerCase().includes(orgSearch.toLowerCase()))
+                      .map(org => (
+                        <button
+                          key={org.id}
+                          type="button"
+                          onClick={() => { setSelectedOrgId(String(org.id)); setOrgDropOpen(false); setOrgSearch('') }}
+                          className="w-full text-left px-3 py-2 text-[12px] transition-colors"
+                          style={{
+                            color: String(org.id) === selectedOrgId ? '#3772ff' : 'var(--text-2)',
+                            background: String(org.id) === selectedOrgId ? 'rgba(55,114,255,0.08)' : 'transparent',
+                          }}
+                          onMouseEnter={e => { if (String(org.id) !== selectedOrgId) (e.currentTarget as HTMLElement).style.background = 'var(--surface-hover)' }}
+                          onMouseLeave={e => { if (String(org.id) !== selectedOrgId) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                        >
+                          {org.name}
+                        </button>
+                      ))}
+                    {orgs.filter(o => o.name.toLowerCase().includes(orgSearch.toLowerCase())).length === 0 && orgSearch !== '' && (
+                      <p className="px-3 py-3 text-[11px] text-center" style={{ color: 'var(--text-4)' }}>
+                        Ничего не найдено
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

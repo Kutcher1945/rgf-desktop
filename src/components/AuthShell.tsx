@@ -95,108 +95,184 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
   if (!authed) {
     return (
-      <div className="min-h-screen bg-gov-navy-darker flex items-center justify-center p-4">
-        {/* Background grid */}
-        <div
-          className="absolute inset-0 opacity-[0.04]"
-          style={{
-            backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)',
-            backgroundSize: '40px 40px',
-          }}
-        />
+      <div className="relative min-h-screen overflow-hidden flex items-center justify-center p-4"
+           style={{ background: 'radial-gradient(ellipse at 20% 50%, #0a1628 0%, #060d1a 60%, #03080f 100%)' }}>
 
-        <div className="relative w-full max-w-sm">
-          {/* Logo */}
-          <div className="flex flex-col items-center mb-8">
-            <img src="/logo.png" alt="Логотип" className="h-14 w-auto mb-4 drop-shadow-lg" />
-            <h1 className="text-white text-xl font-semibold">RGF Import Tool</h1>
-            <p className="text-gov-navy-light/40 text-xs mt-1 uppercase tracking-widest">planning.gov.kz</p>
+        {/* ── Animated orbs ── */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="login-orb-1 absolute w-[520px] h-[520px] rounded-full opacity-[0.22]"
+               style={{ top: '-120px', left: '-80px',
+                        background: 'radial-gradient(circle, #3772ff 0%, transparent 70%)' }} />
+          <div className="login-orb-2 absolute w-[420px] h-[420px] rounded-full opacity-[0.18]"
+               style={{ bottom: '-100px', right: '-60px',
+                        background: 'radial-gradient(circle, #6366f1 0%, transparent 70%)' }} />
+          <div className="login-orb-3 absolute w-[300px] h-[300px] rounded-full opacity-[0.12]"
+               style={{ top: '40%', left: '55%',
+                        background: 'radial-gradient(circle, #0ea5e9 0%, transparent 70%)' }} />
+        </div>
+
+        {/* ── Noise texture / grid ── */}
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
+             style={{
+               backgroundImage: 'linear-gradient(rgba(255,255,255,0.8) 1px, transparent 1px), linear-gradient(90deg,rgba(255,255,255,0.8) 1px,transparent 1px)',
+               backgroundSize: '48px 48px',
+             }} />
+
+        {/* ── Center column ── */}
+        <div className="relative w-full max-w-[360px] flex flex-col items-center">
+
+          {/* Logo + title */}
+          <div className="login-logo flex flex-col items-center mb-7 select-none">
+            {/* Dual logo row */}
+            <div className="flex items-center gap-4 mb-4">
+              <div className="relative">
+                <div className="absolute inset-0 rounded-full opacity-40 blur-xl"
+                     style={{ background: 'radial-gradient(circle, #3772ff, transparent)' }} />
+                <img src="/logo.png" alt="TengriLake.Ai"
+                     className="logo-glow relative h-14 w-auto" />
+              </div>
+              <span className="text-white/20 text-xl font-light">×</span>
+              <div style={{ isolation: 'isolate' }}>
+                <img src="/logo.svg" alt="planning.gov.kz"
+                     className="h-14 w-auto opacity-90"
+                     style={{ transform: 'translateZ(0)', willChange: 'transform' }} />
+              </div>
+            </div>
+            <h1 className="text-white text-[22px] font-bold tracking-tight"
+                style={{ textShadow: '0 0 40px rgba(55,114,255,0.4)' }}>
+              RGF Import Tool
+            </h1>
+            <p className="text-white/25 text-[10px] mt-1.5 uppercase tracking-[0.22em] font-medium">
+              planning.gov.kz · Алматы
+            </p>
           </div>
 
-          {/* Card */}
-          <div className="bg-white rounded-2xl shadow-modal overflow-hidden">
-            <div className="bg-gov-navy px-6 py-5 border-b border-white/5">
-              <p className="text-white font-semibold text-sm">Вход в систему</p>
-              <p className="text-gov-navy-light/50 text-xs mt-0.5">Введите логин и пароль для доступа</p>
+          {/* Glass card */}
+          <div className="login-card glass-card w-full rounded-2xl overflow-hidden">
+
+            {/* Card header stripe */}
+            <div className="px-6 pt-6 pb-5 border-b border-white/[0.07]">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+                       style={{ background: 'linear-gradient(135deg,#3772ff,#6366f1)' }}>
+                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                    </svg>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-white/90 font-semibold text-sm leading-tight">Вход в систему</p>
+                  <p className="text-white/35 text-[11px] mt-0.5">Введите учётные данные для доступа</p>
+                </div>
+              </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="px-6 py-6 space-y-4">
-              <div>
-                <label className="block text-[11px] font-semibold text-gov-navy/50 uppercase tracking-wider mb-1.5">
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+
+              {/* Login field */}
+              <div className="login-f1">
+                <label className="block text-[10px] font-semibold text-white/35 uppercase tracking-[0.14em] mb-2">
                   Логин
                 </label>
-                <input
-                  ref={loginRef}
-                  type="text"
-                  value={login}
-                  onChange={e => setLogin(e.target.value)}
-                  placeholder="Введите логин"
-                  autoComplete="username"
-                  className="w-full px-4 py-2.5 rounded-xl border border-gov-grey-light focus:border-gov-blue focus:ring-2 focus:ring-gov-blue/10 outline-none text-sm text-gov-navy transition-all"
-                />
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/25 pointer-events-none">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                    </svg>
+                  </span>
+                  <input
+                    ref={loginRef}
+                    type="text"
+                    value={login}
+                    onChange={e => setLogin(e.target.value)}
+                    placeholder="Введите логин"
+                    autoComplete="username"
+                    className="login-input w-full pl-10 pr-4 py-2.5 rounded-xl text-sm text-white/90 placeholder-white/20 border border-white/10"
+                    style={{ background: 'rgba(255,255,255,0.05)' }}
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-gov-navy/50 uppercase tracking-wider mb-1.5">
+              {/* Password field */}
+              <div className="login-f2">
+                <label className="block text-[10px] font-semibold text-white/35 uppercase tracking-[0.14em] mb-2">
                   Пароль
                 </label>
-                <input
-                  ref={passwordRef}
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  className="w-full px-4 py-2.5 rounded-xl border border-gov-grey-light focus:border-gov-blue focus:ring-2 focus:ring-gov-blue/10 outline-none text-sm text-gov-navy transition-all"
-                />
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/25 pointer-events-none">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                    </svg>
+                  </span>
+                  <input
+                    ref={passwordRef}
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    className="login-input w-full pl-10 pr-4 py-2.5 rounded-xl text-sm text-white/90 placeholder-white/20 border border-white/10"
+                    style={{ background: 'rgba(255,255,255,0.05)' }}
+                  />
+                </div>
               </div>
 
+              {/* Error */}
               {error && (
-                <div className="flex items-start gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600">
-                  <span className="shrink-0 mt-0.5">✗</span>
-                  <span className="whitespace-pre-wrap break-words">{error}</span>
+                <div className="login-f3 flex items-start gap-2.5 px-3.5 py-3 rounded-xl text-xs text-red-300 border border-red-500/20"
+                     style={{ background: 'rgba(239,68,68,0.08)' }}>
+                  <svg className="w-3.5 h-3.5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                  </svg>
+                  <span className="whitespace-pre-wrap break-words leading-relaxed">{error}</span>
                 </div>
               )}
 
-              <button
-                type="submit"
-                disabled={loading || !login.trim() || !password.trim()}
-                className="w-full py-2.5 bg-gov-blue hover:bg-gov-blue-hover active:bg-gov-blue-active disabled:bg-gov-blue/40 text-white font-semibold text-sm rounded-xl transition-colors"
-              >
-                {loading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Проверка...
-                  </span>
-                ) : 'Войти'}
-              </button>
+              {/* Submit */}
+              <div className="login-f4 pt-1">
+                <button
+                  type="submit"
+                  disabled={loading || !login.trim() || !password.trim()}
+                  className="btn-shimmer w-full py-2.5 text-white font-semibold text-sm rounded-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
+                >
+                  {loading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Проверка...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      Войти
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                      </svg>
+                    </span>
+                  )}
+                </button>
+              </div>
             </form>
           </div>
 
           {/* Debug logs panel */}
-          <div className="mt-3">
-            <div className="flex items-center justify-between">
+          <div className="login-footer w-full mt-3">
+            <div className="flex items-center justify-between px-1">
               <button
                 type="button"
                 onClick={() => setShowLogs(v => !v)}
-                className="text-[10px] text-gov-navy-light/30 hover:text-gov-navy-light/60 transition-colors px-1"
+                className="text-[10px] text-white/20 hover:text-white/50 transition-colors"
               >
                 {showLogs ? '▲ Скрыть логи' : '▼ Логи отладки'}{logs.length > 0 ? ` (${logs.length})` : ''}
               </button>
               {showLogs && logs.length > 0 && (
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={copyLogs}
-                    className="text-[10px] text-gov-navy-light/30 hover:text-gov-navy-light/60 transition-colors px-1"
-                  >
+                <div className="flex gap-3">
+                  <button type="button" onClick={copyLogs}
+                          className="text-[10px] text-white/20 hover:text-white/50 transition-colors">
                     Копировать
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setLogs([])}
-                    className="text-[10px] text-gov-navy-light/30 hover:text-gov-navy-light/60 transition-colors px-1"
-                  >
+                  <button type="button" onClick={() => setLogs([])}
+                          className="text-[10px] text-white/20 hover:text-white/50 transition-colors">
                     Очистить
                   </button>
                 </div>
@@ -204,16 +280,14 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
             </div>
 
             {showLogs && (
-              <div className="mt-1.5 bg-black/85 rounded-xl p-3 text-[10px] font-mono text-green-400 max-h-52 overflow-y-auto">
+              <div className="mt-1.5 rounded-xl p-3 text-[10px] font-mono text-green-400 max-h-52 overflow-y-auto border border-white/[0.06]"
+                   style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}>
                 {logs.length === 0 ? (
                   <p className="text-white/30 italic">Нет записей. Попробуйте войти.</p>
                 ) : (
                   logs.map((l, i) => (
-                    <p
-                      key={i}
-                      className="whitespace-pre-wrap break-all leading-relaxed"
-                      style={{ color: l.includes('✗') ? '#f87171' : l.startsWith('[') && l.includes('───') ? '#facc15' : undefined }}
-                    >
+                    <p key={i} className="whitespace-pre-wrap break-all leading-relaxed"
+                       style={{ color: l.includes('✗') ? '#f87171' : l.includes('───') ? '#facc15' : undefined }}>
                       {l}
                     </p>
                   ))
@@ -222,10 +296,6 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </div>
-
-          <p className="text-center text-gov-navy-light/20 text-[11px] mt-4 uppercase tracking-widest">
-            Алматы · Акимат
-          </p>
         </div>
       </div>
     )

@@ -88,3 +88,108 @@
 .animate-modal {
   animation: modal-in 0.18s ease-out both;
 }
+
+/* ── Login page animations ───────────────────────────────────── */
+@keyframes orb-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(60px, -80px) scale(1.15); }
+  66%       { transform: translate(-40px, 40px) scale(0.9); }
+}
+@keyframes orb-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(-70px, 60px) scale(0.85); }
+  66%       { transform: translate(50px, -50px) scale(1.1); }
+}
+@keyframes orb-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%       { transform: translate(40px, 70px) scale(1.2); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-down {
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  from { background-position: -200% center; }
+  to   { background-position:  200% center; }
+}
+@keyframes logo-glow {
+  0%, 100% { filter: drop-shadow(0 0 12px rgba(55, 114, 255, 0.5)); }
+  50%       { filter: drop-shadow(0 0 28px rgba(55, 114, 255, 0.9)); }
+}
+@keyframes border-spin {
+  to { --angle: 360deg; }
+}
+@keyframes pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.6; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.login-orb-1 { animation: orb-1 12s ease-in-out infinite; }
+.login-orb-2 { animation: orb-2 15s ease-in-out infinite; }
+.login-orb-3 { animation: orb-3 10s ease-in-out infinite; }
+
+.login-card  { animation: fade-up   0.55s cubic-bezier(0.16,1,0.3,1) both; }
+.login-logo  { animation: fade-down 0.45s cubic-bezier(0.16,1,0.3,1) 0.05s both; }
+.login-f1    { animation: fade-up   0.45s cubic-bezier(0.16,1,0.3,1) 0.15s both; opacity: 0; }
+.login-f2    { animation: fade-up   0.45s cubic-bezier(0.16,1,0.3,1) 0.22s both; opacity: 0; }
+.login-f3    { animation: fade-up   0.45s cubic-bezier(0.16,1,0.3,1) 0.29s both; opacity: 0; }
+.login-f4    { animation: fade-up   0.45s cubic-bezier(0.16,1,0.3,1) 0.36s both; opacity: 0; }
+.login-footer{ animation: fade-up   0.45s cubic-bezier(0.16,1,0.3,1) 0.50s both; opacity: 0; }
+
+.logo-glow { animation: logo-glow 3s ease-in-out infinite; }
+
+.btn-shimmer {
+  background: linear-gradient(90deg,
+    #3772ff 0%,
+    #5a8fff 40%,
+    #90b8ff 50%,
+    #5a8fff 60%,
+    #3772ff 100%
+  );
+  background-size: 200% auto;
+  transition: background-position 0.3s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.btn-shimmer:hover:not(:disabled) {
+  background-position: right center;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(55,114,255,0.45);
+}
+.btn-shimmer:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(55,114,255,0.3);
+}
+
+.login-input {
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+}
+.login-input:focus {
+  border-color: #3772ff;
+  box-shadow: 0 0 0 3px rgba(55,114,255,0.18), 0 1px 3px rgba(0,0,0,0.3);
+  background-color: rgba(55,114,255,0.04);
+  outline: none;
+}
+
+.glass-card {
+  background: rgba(17, 25, 50, 0.72);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow:
+    0 0 0 1px rgba(55,114,255,0.08),
+    0 24px 64px rgba(0,0,0,0.5),
+    0 8px 24px rgba(0,0,0,0.3),
+    inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.pulse-ring::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 9999px;
+  border: 2px solid rgba(55,114,255,0.4);
+  animation: pulse-ring 2.5s cubic-bezier(0.4,0,0.6,1) infinite;
+}
