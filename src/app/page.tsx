@@ -1289,7 +1289,7 @@ export default function ImportPage() {
                         style={{ borderColor: 'var(--border)', color: 'var(--text-3)', background: 'var(--surface-0)' }}>↻</button>
               </div>
               {(() => {
-                const drafts = recentRecords.filter(r => r.status === 'pending')
+                const drafts = recentRecords.filter(r => r.status === 'pending' || r.was_edited)
                 if (!drafts.length) return (
                   <div className="card py-16 flex flex-col items-center gap-2">
                     <p className="text-sm font-semibold" style={{ color: 'var(--text-3)' }}>Нет черновиков</p>
@@ -1314,8 +1314,10 @@ export default function ImportPage() {
                               onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)')}>
                             <td className="px-4 py-2.5 max-w-[220px]">
                               <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-1)' }}>{r.filename}</p>
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                                    style={{ background: 'rgba(251,191,36,0.12)', color: 'rgba(251,191,36,1)' }}>Черновик</span>
+                              {r.status === 'pending'
+                                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(251,191,36,0.12)', color: 'rgba(251,191,36,1)' }}>Черновик</span>
+                                : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399' }}>✓ Импортирован</span>
+                              }
                             </td>
                             <td className="px-4 py-2.5">
                               <span className="text-[11px] break-words leading-snug block" style={{ color: 'var(--text-2)', maxWidth: '260px' }}>{r.gu_name || r.gu_id || '—'}</span>
@@ -1442,12 +1444,15 @@ export default function ImportPage() {
                       ? { background: 'var(--surface-hover)', color: 'var(--text-1)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }
                       : { color: 'var(--text-3)' }}>
                     {label}
-                    {id === 'drafts' && recentRecords.filter(r => r.status === 'pending').length > 0 && (
-                      <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                            style={{ background: 'rgba(251,191,36,0.18)', color: 'rgba(251,191,36,1)' }}>
-                        {recentRecords.filter(r => r.status === 'pending').length}
-                      </span>
-                    )}
+                    {id === 'drafts' && (() => {
+                      const pending = recentRecords.filter(r => r.status === 'pending').length
+                      return pending > 0 ? (
+                        <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                              style={{ background: 'rgba(251,191,36,0.18)', color: 'rgba(251,191,36,1)' }}>
+                          {pending}
+                        </span>
+                      ) : null
+                    })()}
                   </button>
                 ))}
               </div>
@@ -1460,7 +1465,7 @@ export default function ImportPage() {
                   { value: 'revision',    label: 'На доработке',  bg: 'rgba(239,68,68,0.12)',   color: '#f87171'             },
                   { value: 'approved',    label: 'Согласован',    bg: 'rgba(16,185,129,0.12)', color: '#34d399'             },
                 ]
-                const drafts = recentRecords.filter(r => r.status === 'pending')
+                const drafts = recentRecords.filter(r => r.status === 'pending' || r.was_edited)
                 if (!drafts.length) return (
                   <div className="card py-16 flex flex-col items-center gap-2">
                     <p className="text-sm font-semibold" style={{ color: 'var(--text-3)' }}>Нет черновиков</p>
@@ -1487,8 +1492,10 @@ export default function ImportPage() {
                                 onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)')}>
                               <td className="px-4 py-2.5 max-w-[200px]">
                                 <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-1)' }}>{r.filename}</p>
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                                      style={{ background: 'rgba(251,191,36,0.12)', color: 'rgba(251,191,36,1)' }}>Черновик</span>
+                                {r.status === 'pending'
+                                  ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(251,191,36,0.12)', color: 'rgba(251,191,36,1)' }}>Черновик</span>
+                                  : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399' }}>✓ Импортирован</span>
+                                }
                               </td>
                               <td className="px-4 py-2.5">
                                 <span className="text-[11px] break-words leading-snug block" style={{ color: 'var(--text-2)', maxWidth: '220px' }}>{r.gu_name || r.gu_id || '—'}</span>
@@ -1553,26 +1560,36 @@ export default function ImportPage() {
                                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(55,114,255,0.10)' }}
                                   >Редактировать</button>
                                   {/* Submit to planning.gov.kz */}
-                                  <button
-                                    disabled={submittingDraftId === r.id}
-                                    onClick={async () => {
-                                      setSubmittingDraftId(r.id)
-                                      try {
-                                        await submitDraft(r.id)
-                                        await refreshRecords()
-                                      } catch (e: any) {
-                                        alert('Ошибка: ' + e?.message)
-                                      } finally {
-                                        setSubmittingDraftId(null)
-                                      }
-                                    }}
-                                    className="text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all"
-                                    style={{ background: 'rgba(16,185,129,0.10)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)', opacity: submittingDraftId === r.id ? 0.5 : 1 }}
-                                    onMouseEnter={e => { if (submittingDraftId !== r.id) (e.currentTarget as HTMLElement).style.background = 'rgba(16,185,129,0.20)' }}
-                                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(16,185,129,0.10)' }}
-                                  >
-                                    {submittingDraftId === r.id ? '...' : 'Загрузить'}
-                                  </button>
+                                  {r.status === 'pending' ? (
+                                    <button
+                                      disabled={submittingDraftId === r.id}
+                                      onClick={async () => {
+                                        setSubmittingDraftId(r.id)
+                                        try {
+                                          await submitDraft(r.id)
+                                          await refreshRecords()
+                                        } catch (e: any) {
+                                          alert('Ошибка: ' + e?.message)
+                                        } finally {
+                                          setSubmittingDraftId(null)
+                                        }
+                                      }}
+                                      className="text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all"
+                                      style={{ background: 'rgba(16,185,129,0.10)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)', opacity: submittingDraftId === r.id ? 0.5 : 1 }}
+                                      onMouseEnter={e => { if (submittingDraftId !== r.id) (e.currentTarget as HTMLElement).style.background = 'rgba(16,185,129,0.20)' }}
+                                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(16,185,129,0.10)' }}
+                                    >
+                                      {submittingDraftId === r.id ? '...' : 'Загрузить'}
+                                    </button>
+                                  ) : (
+                                    r.url ? (
+                                      <a href={r.url} target="_blank" rel="noopener noreferrer"
+                                         className="text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all"
+                                         style={{ background: 'rgba(55,114,255,0.08)', color: '#93b4ff', border: '1px solid rgba(55,114,255,0.15)' }}>
+                                        Открыть ↗
+                                      </a>
+                                    ) : null
+                                  )}
                                 </div>
                               </td>
                             </tr>
