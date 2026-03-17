@@ -2,13 +2,16 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import NavBar from './NavBar'
-import { authLogin, setAuthToken, clearAuthToken } from '@/lib/api'
+import { authLogin, setAuthToken, clearAuthToken, setUserRole, clearUserRole, getUserRole } from '@/lib/api'
+import { UserContext, type UserRole } from '@/lib/user-context'
 
 const AUTH_KEY = 'rgf_auth'
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000'
 
 export default function AuthShell({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState<boolean | null>(null)
+  const [role, setRole] = useState<UserRole>('admin')
+  const [loginType, setLoginType] = useState<'admin' | 'operator'>('admin')
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -26,6 +29,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setAuthed(localStorage.getItem(AUTH_KEY) === '1')
+    setRole(getUserRole())
   }, [])
 
   useEffect(() => {
@@ -38,6 +42,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
   const handleLogout = () => {
     clearAuthToken()
+    clearUserRole()
     localStorage.removeItem(AUTH_KEY)
     setLogin('')
     setPassword('')
@@ -59,9 +64,11 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
     addLog(`UA: ${navigator.userAgent.slice(0, 100)}`)
 
     try {
-      const token = await authLogin(login, password)
+      const { token, role: userRole } = await authLogin(login, password, loginType)
       setAuthToken(token)
-      addLog('✓ Success')
+      setUserRole(userRole)
+      setRole(userRole)
+      addLog(`✓ Success (role: ${userRole})`)
       localStorage.setItem(AUTH_KEY, '1')
       setAuthed(true)
     } catch (err: any) {
@@ -150,26 +157,55 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
           {/* Glass card */}
           <div className="login-card glass-card w-full rounded-2xl overflow-hidden">
 
-            {/* Card header stripe */}
-            <div className="px-6 pt-6 pb-5 border-b border-white/[0.07]">
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-                       style={{ background: 'linear-gradient(135deg,#3772ff,#6366f1)' }}>
-                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                    </svg>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-white/90 font-semibold text-sm leading-tight">Вход в систему</p>
-                  <p className="text-white/35 text-[11px] mt-0.5">Введите учётные данные для доступа</p>
-                </div>
-              </div>
+            {/* Role switcher */}
+            <div className="flex" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+              {(['admin', 'operator'] as const).map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => { setLoginType(t); setError(null) }}
+                  className="flex-1 py-3.5 text-[12px] font-semibold tracking-wide transition-all relative"
+                  style={loginType === t ? {
+                    color: t === 'admin' ? '#93b4ff' : '#6ee7b7',
+                    background: t === 'admin' ? 'rgba(55,114,255,0.08)' : 'rgba(16,185,129,0.07)',
+                  } : {
+                    color: 'rgba(255,255,255,0.25)',
+                  }}
+                >
+                  {t === 'admin' ? (
+                    <span className="flex items-center justify-center gap-1.5">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                      </svg>
+                      Администратор
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-1.5">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                      </svg>
+                      Оператор
+                    </span>
+                  )}
+                  {loginType === t && (
+                    <span
+                      className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
+                      style={{ background: t === 'admin' ? '#3772ff' : '#10b981' }}
+                    />
+                  )}
+                </button>
+              ))}
             </div>
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+
+              {/* Hint */}
+              <p className="text-[11px] text-center -mb-1" style={{ color: 'rgba(255,255,255,0.22)' }}>
+                {loginType === 'admin'
+                  ? 'Учётные данные planning.gov.kz'
+                  : 'Учётные данные оператора системы'}
+              </p>
 
               {/* Login field */}
               <div className="login-f1">
@@ -235,7 +271,12 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
                 <button
                   type="submit"
                   disabled={loading || !login.trim() || !password.trim()}
-                  className="btn-shimmer w-full py-2.5 text-white font-semibold text-sm rounded-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
+                  className="w-full py-2.5 text-white font-semibold text-sm rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  style={{
+                    background: loginType === 'operator'
+                      ? 'linear-gradient(135deg, #10b981, #059669)'
+                      : 'linear-gradient(135deg, #3772ff, #6366f1)',
+                  }}
                 >
                   {loading ? (
                     <span className="flex items-center justify-center gap-2">
@@ -302,11 +343,11 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <>
-      <NavBar onLogout={handleLogout} />
+    <UserContext.Provider value={{ role }}>
+      <NavBar onLogout={handleLogout} role={role} />
       <main className="pt-14 min-h-screen">
         {children}
       </main>
-    </>
+    </UserContext.Provider>
   )
 }

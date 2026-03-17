@@ -2,11 +2,17 @@
 // Override via NEXT_PUBLIC_API_BASE env var if needed.
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000'
 
-// Use Tauri HTTP plugin (routes through Rust/reqwest) to bypass WebView2 network restrictions.
-// Falls back to native fetch when running outside of Tauri (e.g. Next.js dev server).
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
+// Use Tauri HTTP plugin when running inside Tauri (bypasses WebView2 CORS restrictions).
+// Falls back to native browser fetch when running in a regular browser / Next.js dev server.
+import { fetch as _tauriFetch } from '@tauri-apps/plugin-http'
+const tauriFetch: typeof fetch = (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__)
+  ? _tauriFetch as unknown as typeof fetch
+  : (...args) => fetch(...args)
 
 const TOKEN_KEY = 'rgf_token'
+const ROLE_KEY  = 'rgf_role'
+
+export type UserRole = 'admin' | 'operator'
 
 export function setAuthToken(token: string) {
   localStorage.setItem(TOKEN_KEY, token)
@@ -16,19 +22,32 @@ export function clearAuthToken() {
   localStorage.removeItem(TOKEN_KEY)
 }
 
+export function setUserRole(role: UserRole) {
+  localStorage.setItem(ROLE_KEY, role)
+}
+
+export function getUserRole(): UserRole {
+  if (typeof window === 'undefined') return 'admin'
+  return (localStorage.getItem(ROLE_KEY) as UserRole) ?? 'admin'
+}
+
+export function clearUserRole() {
+  localStorage.removeItem(ROLE_KEY)
+}
+
 function authHeaders(): Record<string, string> {
   if (typeof window === 'undefined') return {}
   const token = localStorage.getItem(TOKEN_KEY)
   return token ? { 'Authorization': `Bearer ${token}` } : {}
 }
 
-export async function authLogin(login: string, password: string): Promise<string> {
+export async function authLogin(login: string, password: string, loginType: 'admin' | 'operator' | 'auto' = 'auto'): Promise<{ token: string; role: UserRole }> {
   let res: Response
   try {
     res = await tauriFetch(`${BASE}/api/rgf/auth/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ login, password }),
+      body: JSON.stringify({ login, password, login_type: loginType }),
     })
   } catch (e: any) {
     const online = typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -56,12 +75,18 @@ export async function authLogin(login: string, password: string): Promise<string
     throw new Error((err as any).error || `Сервер вернул ошибку HTTP ${res.status}`)
   }
   const data = await res.json()
-  return (data as any).token as string
+  return { token: (data as any).token as string, role: ((data as any).role ?? 'admin') as UserRole }
 }
 
 export interface Org {
   id: string | number
   name: string
+}
+
+export interface Department {
+  id: number
+  name: string
+  short_name: string
 }
 
 export interface ImportResult {
@@ -84,13 +109,16 @@ export interface ImportResponse {
   results: ImportResult[]
 }
 
+export type DraftStatus = 'in_progress' | 'review' | 'revision' | 'approved'
+
 export interface ImportedRecord {
   id: number
   record_id: number | null
   filename: string
   gu_id: string
   gu_name: string
-  status: 'success' | 'skipped' | 'error'
+  status: 'success' | 'skipped' | 'error' | 'pending'
+  draft_status: DraftStatus
   skip_reason?: string
   error?: string
   url?: string
@@ -100,6 +128,7 @@ export interface ImportedRecord {
   responsibilities_count: number
   functions_count: number
   created_at: string
+  data?: PreviewData
 }
 
 export interface RecordsResponse {
@@ -145,6 +174,8 @@ export interface PreviewResult {
   gu_id: string | null
   gu_name: string | null
   detected_source: string | null
+  suggested_dept_id?: string
+  suggested_dept_name?: string
   stats: { rights: number; responsibilities: number; tasks: number; functions: number }
   issues: string[]
   warnings: string[]
@@ -165,11 +196,11 @@ export interface ParsedImportResult {
   functions_failed?: number
 }
 
-export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string): Promise<ParsedImportResult> {
+export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string, departmentId?: number): Promise<ParsedImportResult> {
   const res = await tauriFetch(`${BASE}/api/rgf/import-parsed/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...data }),
+    body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...(departmentId ? { department_id: departmentId } : {}), ...data }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
@@ -206,10 +237,67 @@ export async function getOrganizations(): Promise<Org[]> {
   return res.json()
 }
 
-export async function importDocuments(files: File[], guId?: string): Promise<ImportResponse> {
+export async function getDepartments(guId: string | number): Promise<Department[]> {
+  const res = await tauriFetch(`${BASE}/api/rgf/organizations/${guId}/departments/`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export async function uploadDepartmentExcel(deptId: number, file: File): Promise<{ success: boolean; rows_loaded: number }> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await tauriFetch(`${BASE}/api/rgf/departments/${deptId}/upload-excel/`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any).error || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+export function getDepartmentExcelTemplateUrl(): string {
+  return `${BASE}/api/rgf/departments/excel-template/`
+}
+
+export interface ExcelFunctionRow {
+  function_name_ru: string
+  function_name_kz: string
+  function_type: string
+  target_task: string
+  function_description: string
+  structural_element: string
+  law_ru: string
+  task_name: string
+  is_government_service: boolean
+  result_description: string
+  digital_maturity: string
+  activity_area_name: string
+  sub_activity_area_name: string
+  functional_group_name: string
+  functional_subgroup_name: string
+}
+
+export async function parseExcelFile(file: File): Promise<ExcelFunctionRow[]> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await tauriFetch(`${BASE}/api/rgf/parse-excel/`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  return (data as any).rows ?? []
+}
+
+export async function importDocuments(files: File[], guId?: string, departmentId?: number): Promise<ImportResponse> {
   const form = new FormData()
   files.forEach(f => form.append('files', f))
   if (guId) form.append('gu_id', guId)
+  if (departmentId) form.append('department_id', String(departmentId))
 
   const res = await tauriFetch(`${BASE}/api/rgf/import/`, { method: 'POST', headers: authHeaders(), body: form })
   if (!res.ok) {
@@ -261,11 +349,94 @@ export async function createDepartmentFunction(
   return res.json()
 }
 
+export interface PositionDepartmentItem {
+  id: number
+  type: number
+  guId: number
+  guName: string
+  departmentId: number
+  departmentName: string
+  committeeId: number
+  committeeName: string
+  positionDepartmentId: number
+  staffNumbers: number
+  statusObj?: { code: string; nameRu: string; badge: string }
+  tasks?: { id: number; taskText: string }[]
+  authoritiesLaw?: { id: number; authorityText: string }[]
+  authoritiesResponsibilities?: { id: number; authorityText: string }[]
+  functions?: { id: number; functionNameRu: string; functionNameKz: string }[]
+}
+
+export interface BrowseResponse {
+  content: PositionDepartmentItem[]
+  totalElements?: number
+  totalPages?: number
+  number?: number
+  size?: number
+}
+
+export async function browseRecords(type: number, page = 0, size = 200): Promise<BrowseResponse> {
+  const res = await tauriFetch(`${BASE}/api/rgf/browse/?type=${type}&page=${page}&size=${size}`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export async function syncDicts(): Promise<{ ok: boolean; synced: Record<string, number> }> {
+  const res = await tauriFetch(`${BASE}/api/rgf/sync-dicts/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any).error || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function saveDraft(guId: string, data: PreviewData, filename?: string, guName?: string): Promise<{ success: boolean; id: number }> {
+  const res = await tauriFetch(`${BASE}/api/rgf/save-draft/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...data }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any).error || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function submitDraft(draftId: number): Promise<ParsedImportResult> {
+  const res = await tauriFetch(`${BASE}/api/rgf/submit-draft/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ draft_id: draftId }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any).error || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
 export async function deleteRecords(recordIds: number[]): Promise<DeleteResponse> {
   const res = await tauriFetch(`${BASE}/api/rgf/records/delete/`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ record_ids: recordIds, confirm: true }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any).error || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function updateDraftStatus(draftId: number, draftStatus: DraftStatus): Promise<{ success: boolean; draft_status: DraftStatus }> {
+  const res = await tauriFetch(`${BASE}/api/rgf/update-draft-status/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ draft_id: draftId, draft_status: draftStatus }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))

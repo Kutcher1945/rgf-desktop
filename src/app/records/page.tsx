@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { getRecords, getAuditLog, deleteRecords } from '@/lib/api'
+import { getRecords, getAuditLog, deleteRecords, submitDraft } from '@/lib/api'
 import type { ImportedRecord, AuditLogEntry } from '@/lib/api'
+import { useUserRole } from '@/lib/user-context'
 
 type Tab = 'imports' | 'audit'
 
@@ -14,9 +15,10 @@ const ACTION_META: Record<string, { label: string; color: string; dot: string }>
 }
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string; dot: string }> = {
-  success: { label: 'OK',        color: 'var(--badge-ok-fg)',   bg: 'var(--badge-ok-bg)',   dot: 'bg-emerald-400' },
-  skipped: { label: 'Пропущен',  color: 'var(--badge-warn-fg)', bg: 'var(--badge-warn-bg)', dot: 'bg-amber-400'   },
-  error:   { label: 'Ошибка',    color: 'var(--badge-err-fg)',  bg: 'var(--badge-err-bg)',  dot: 'bg-red-400'     },
+  success: { label: 'OK',        color: 'var(--badge-ok-fg)',       bg: 'var(--badge-ok-bg)',   dot: 'bg-emerald-400' },
+  skipped: { label: 'Пропущен',  color: 'var(--badge-warn-fg)',     bg: 'var(--badge-warn-bg)', dot: 'bg-amber-400'   },
+  error:   { label: 'Ошибка',    color: 'var(--badge-err-fg)',      bg: 'var(--badge-err-bg)',  dot: 'bg-red-400'     },
+  pending: { label: 'Черновик',  color: 'rgba(251,191,36,1)',       bg: 'rgba(251,191,36,0.12)', dot: 'bg-amber-400'  },
 }
 
 function fmt(iso: string) {
@@ -56,6 +58,7 @@ function StatCard({
 }
 
 export default function RecordsPage() {
+  const userRole = useUserRole()
   const [tab, setTab] = useState<Tab>('imports')
 
   const [records, setRecords]           = useState<ImportedRecord[]>([])
@@ -100,6 +103,17 @@ export default function RecordsPage() {
       const res = await deleteRecords(ids)
       setMessage(`Удалено: ${res.deleted_count}${res.failed_count ? `. Ошибок: ${res.failed_count}` : ''}`)
       setSelected(new Set())
+      await loadRecords()
+    } catch (e: any) { setRecError(e.message) }
+    finally { setDeleting(false) }
+  }
+
+  const handleSubmitDraft = async (draftId: number) => {
+    if (!confirm('Отправить черновик в planning.gov.kz?')) return
+    setDeleting(true); setRecError(null); setMessage(null)
+    try {
+      const res = await submitDraft(draftId)
+      setMessage(res.status === 'success' ? 'Черновик успешно отправлен в planning.gov.kz' : `Статус: ${res.status}${res.error ? ` — ${res.error}` : ''}`)
       await loadRecords()
     } catch (e: any) { setRecError(e.message) }
     finally { setDeleting(false) }
@@ -201,7 +215,7 @@ export default function RecordsPage() {
           ))}
         </div>
 
-        {tab === 'imports' && successRecords.length > 0 && (
+        {tab === 'imports' && successRecords.length > 0 && userRole === 'admin' && (
           <button
             onClick={() => handleDelete(successRecords.map(r => r.record_id!))}
             disabled={deleting}
@@ -317,7 +331,19 @@ export default function RecordsPage() {
                         {fmt(r.created_at)}
                       </td>
                       <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
-                        {r.url && (
+                        {r.status === 'pending' && userRole === 'admin' ? (
+                          <button
+                            onClick={() => handleSubmitDraft(r.id)}
+                            disabled={deleting}
+                            className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-all disabled:opacity-40"
+                            style={{ background: 'rgba(55,114,255,0.15)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.25)' }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(55,114,255,0.25)' }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(55,114,255,0.15)' }}
+                          >
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+                            Отправить
+                          </button>
+                        ) : r.url ? (
                           <a href={r.url} target="_blank" rel="noopener noreferrer"
                              className="inline-flex items-center justify-center w-7 h-7 rounded-lg transition-all"
                              style={{ color: 'var(--text-3)', border: '1px solid var(--border)' }}
@@ -325,7 +351,7 @@ export default function RecordsPage() {
                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}>
                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                           </a>
-                        )}
+                        ) : null}
                       </td>
                     </tr>
                   )
@@ -402,8 +428,8 @@ export default function RecordsPage() {
         </div>
       )}
 
-      {/* ── Floating delete bar ── */}
-      {tab === 'imports' && selected.size > 0 && (
+      {/* ── Floating delete bar (admin only) ── */}
+      {tab === 'imports' && selected.size > 0 && userRole === 'admin' && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 animate-modal">
           <div className="flex items-center gap-4 pl-5 pr-3 py-3 rounded-2xl"
                style={{

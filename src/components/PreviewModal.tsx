@@ -1,15 +1,21 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { Org, PreviewResult, PreviewData } from '@/lib/api'
+import { getDepartments } from '@/lib/api'
+import type { Org, Department, PreviewResult, PreviewData, ExcelFunctionRow } from '@/lib/api'
 
 interface Props {
   result: PreviewResult
   guId?: string
   orgs?: Org[]
+  levelType?: 'gu' | 'otdel'
+  departments?: Department[]
+  deptId?: string
   savedData?: PreviewData       // previously saved edits, if any
+  excelRows?: ExcelFunctionRow[] // structured rows from attached xlsx
   onClose: () => void
-  onSave: (data: PreviewData, guId: string) => void
+  onSave: (data: PreviewData, guId: string, deptId?: string) => void
+  onExcelRowsChange?: (rows: ExcelFunctionRow[]) => void
 }
 
 function AutoResizeTextarea({ value, onChange, className, placeholder }: {
@@ -47,10 +53,52 @@ const SECTION_CONFIG = [
 
 type ListKey = 'tasks' | 'authorities_rights' | 'authorities_responsibilities' | 'functions'
 
-export default function PreviewModal({ result, guId, orgs, savedData, onClose, onSave }: Props) {
+/** Find the best-matching excel row for a given function text. */
+function matchExcelRow(fnText: string, rows: ExcelFunctionRow[]): ExcelFunctionRow | undefined {
+  if (!rows.length || !fnText.trim()) return undefined
+  const fn = fnText.toLowerCase().replace(/[;,]/g, '').trim()
+  // Exact or near-exact substring match first
+  for (const r of rows) {
+    const ru = r.function_name_ru.toLowerCase().replace(/[;,]/g, '').trim()
+    if (fn === ru || fn.startsWith(ru.slice(0, 30)) || ru.startsWith(fn.slice(0, 30))) return r
+  }
+  // Word-overlap fallback
+  const words = fn.split(/\s+/).filter(w => w.length > 4)
+  let best: ExcelFunctionRow | undefined
+  let bestScore = 0
+  for (const r of rows) {
+    const ru = r.function_name_ru.toLowerCase()
+    const score = words.filter(w => ru.includes(w)).length
+    if (score > bestScore) { bestScore = score; best = r }
+  }
+  return bestScore >= Math.max(2, Math.floor(words.length * 0.4)) ? best : undefined
+}
+
+export default function PreviewModal({ result, guId, orgs, levelType, departments, deptId, savedData, excelRows, onClose, onSave, onExcelRowsChange }: Props) {
   const { filename, gu_name, gu_id } = result
 
   const [selectedGuId, setSelectedGuId] = useState<string>(guId ?? gu_id ?? '')
+  const [selectedDeptId, setSelectedDeptId] = useState<string>(deptId ?? '')
+  const [localDepts, setLocalDepts] = useState<Department[]>(departments ?? [])
+  // Editable local copy of excel rows
+  const [localExcelRows, setLocalExcelRows] = useState<ExcelFunctionRow[]>(() => excelRows ? [...excelRows] : [])
+  // Which function indices are expanded to show excel metadata
+  const [expandedFns, setExpandedFns] = useState<Set<number>>(new Set())
+  const toggleFn = (i: number) => setExpandedFns(prev => {
+    const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next
+  })
+
+  const updateExcelField = (rowIndex: number, field: keyof ExcelFunctionRow, value: string | boolean) =>
+    setLocalExcelRows(prev => {
+      const next = [...prev]
+      next[rowIndex] = { ...next[rowIndex], [field]: value }
+      return next
+    })
+
+  useEffect(() => {
+    if (levelType !== 'otdel' || !selectedGuId) { setLocalDepts([]); return }
+    getDepartments(selectedGuId).then(setLocalDepts).catch(() => setLocalDepts([]))
+  }, [selectedGuId, levelType])
 
   // Initialise from savedData (if user re-opens a file they already edited) or original parsed data
   const [editData, setEditData] = useState<PreviewData>(() => {
@@ -91,7 +139,8 @@ export default function PreviewModal({ result, guId, orgs, savedData, onClose, o
     setEditData(prev => ({ ...prev, [key]: [...prev[key], ''] }))
 
   const handleSave = () => {
-    onSave(editData, selectedGuId)
+    onSave(editData, selectedGuId, levelType === 'otdel' ? selectedDeptId : undefined)
+    if (onExcelRowsChange && localExcelRows.length > 0) onExcelRowsChange(localExcelRows)
     onClose()
   }
 
@@ -117,7 +166,9 @@ export default function PreviewModal({ result, guId, orgs, savedData, onClose, o
                     onChange={e => setSelectedGuId(e.target.value)}
                     className="mt-1 w-full bg-white/10 hover:bg-white/15 border border-white/20 focus:border-white/40 outline-none rounded-lg px-2 py-1 text-xs text-white/80 focus:text-white transition-all appearance-none cursor-pointer"
                   >
-                    <option value="" className="bg-gov-navy text-white">— Организация не выбрана —</option>
+                    <option value="" className="bg-gov-navy text-white">
+                      {levelType === 'otdel' ? '— Управление (родитель) —' : '— Организация не выбрана —'}
+                    </option>
                     {orgs.map(org => (
                       <option key={org.id} value={String(org.id)} className="bg-gov-navy text-white">
                         {org.name}
@@ -128,6 +179,21 @@ export default function PreviewModal({ result, guId, orgs, savedData, onClose, o
                   <p className="text-gov-navy-light/60 text-xs mt-0.5 truncate">
                     {gu_name || effectiveGuId || 'Организация не определена'}
                   </p>
+                )}
+
+                {levelType === 'otdel' && localDepts.length > 0 && (
+                  <select
+                    value={selectedDeptId}
+                    onChange={e => setSelectedDeptId(e.target.value)}
+                    className="mt-1.5 w-full bg-white/10 hover:bg-white/15 border border-white/20 focus:border-white/40 outline-none rounded-lg px-2 py-1 text-xs text-white/80 focus:text-white transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="" className="bg-gov-navy text-white">— Отдел не выбран —</option>
+                    {localDepts.map(dept => (
+                      <option key={dept.id} value={String(dept.id)} className="bg-gov-navy text-white">
+                        {dept.name}
+                      </option>
+                    ))}
+                  </select>
                 )}
               </div>
             </div>
@@ -193,25 +259,89 @@ export default function PreviewModal({ result, guId, orgs, savedData, onClose, o
                   </div>
 
                   <div className="bg-white divide-y divide-gov-grey-light">
-                    {items.map((item, i) => (
-                      <div key={i} className="flex items-start gap-3 px-4 py-2 group">
-                        <span
-                          className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold mt-2"
-                          style={{ backgroundColor: accent + '15', color: accent }}
-                        >{i + 1}</span>
-                        <AutoResizeTextarea
-                          value={item}
-                          onChange={v => updateItem(key, i, v)}
-                          className="flex-1 text-sm text-gov-navy/80 leading-relaxed rounded-md border border-transparent hover:border-gov-grey-light focus:border-gov-blue focus:ring-1 focus:ring-gov-blue/10 outline-none px-2 py-1.5 bg-transparent focus:bg-white transition-all"
-                        />
-                        <button
-                          onClick={() => deleteItem(key, i)}
-                          className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-gov-navy/25 hover:text-red-500 hover:bg-red-50 transition-all mt-2"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                        </button>
+                    {items.map((item, i) => {
+                      const excelRowMatch = key === 'functions' && localExcelRows.length > 0 ? matchExcelRow(item, localExcelRows) : undefined
+                      const excelRowIdx = excelRowMatch ? localExcelRows.indexOf(excelRowMatch) : -1
+                      const excelRow = excelRowIdx >= 0 ? localExcelRows[excelRowIdx] : undefined
+                      const isExpanded = expandedFns.has(i)
+                      return (
+                      <div key={i} className="group">
+                        <div className="flex items-start gap-3 px-4 py-2">
+                          <span
+                            className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold mt-2"
+                            style={{ backgroundColor: accent + '15', color: accent }}
+                          >{i + 1}</span>
+                          <AutoResizeTextarea
+                            value={item}
+                            onChange={v => updateItem(key, i, v)}
+                            className="flex-1 text-sm text-gov-navy/80 leading-relaxed rounded-md border border-transparent hover:border-gov-grey-light focus:border-gov-blue focus:ring-1 focus:ring-gov-blue/10 outline-none px-2 py-1.5 bg-transparent focus:bg-white transition-all"
+                          />
+                          {/* Excel expand toggle — only shown for functions with matched row */}
+                          {excelRow && (
+                            <button
+                              onClick={() => toggleFn(i)}
+                              title={isExpanded ? 'Свернуть детали' : 'Показать детали Excel'}
+                              className="shrink-0 w-5 h-5 rounded flex items-center justify-center transition-all mt-2"
+                              style={{ color: isExpanded ? '#7c3aed' : '#a78bfa', background: isExpanded ? '#ede9fe' : 'transparent' }}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                {isExpanded
+                                  ? <path d="M18 15l-6-6-6 6"/>
+                                  : <path d="M6 9l6 6 6-6"/>}
+                              </svg>
+                            </button>
+                          )}
+                          <button
+                            onClick={() => deleteItem(key, i)}
+                            className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-gov-navy/25 hover:text-red-500 hover:bg-red-50 transition-all mt-2"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                          </button>
+                        </div>
+                        {/* Editable excel metadata panel */}
+                        {excelRow && isExpanded && excelRowIdx >= 0 && (
+                          <div className="ml-12 mr-4 mb-2 rounded-lg overflow-hidden text-[11px]" style={{ background: '#faf5ff', border: '1px solid #e9d5ff' }}>
+                            {([
+                              ['Тип функции',       'function_type',            'text'],
+                              ['Целевая задача',     'target_task',              'text'],
+                              ['Описание',          'function_description',     'text'],
+                              ['Сфера',             'activity_area_name',       'text'],
+                              ['Подсфера',          'sub_activity_area_name',   'text'],
+                              ['Группа (ЕБК)',       'functional_group_name',    'text'],
+                              ['Подгруппа (ЕБК)',    'functional_subgroup_name', 'text'],
+                              ['Цифровая зрелость', 'digital_maturity',         'text'],
+                              ['Гос. услуга',       'is_government_service',    'bool'],
+                              ['Законодательство',  'law_ru',                   'text'],
+                            ] as [string, keyof ExcelFunctionRow, string][]).map(([label, field, type]) => (
+                              <div key={field} className="flex items-center gap-2 px-3 py-1 border-b border-purple-100 last:border-0">
+                                <span className="shrink-0 font-medium" style={{ color: '#7c3aed', minWidth: 120 }}>{label}</span>
+                                {type === 'bool' ? (
+                                  <select
+                                    value={excelRow[field] ? 'yes' : 'no'}
+                                    onChange={e => updateExcelField(excelRowIdx, field, e.target.value === 'yes')}
+                                    className="flex-1 text-[11px] rounded border px-1.5 py-0.5 outline-none focus:border-purple-400 bg-white"
+                                    style={{ color: '#4c1d95', borderColor: '#e9d5ff' }}
+                                  >
+                                    <option value="no">Нет</option>
+                                    <option value="yes">Да</option>
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={(excelRow[field] as string) ?? ''}
+                                    onChange={e => updateExcelField(excelRowIdx, field, e.target.value)}
+                                    className="flex-1 text-[11px] rounded border px-1.5 py-0.5 outline-none focus:border-purple-400 bg-white"
+                                    style={{ color: '#4c1d95', borderColor: '#e9d5ff' }}
+                                    placeholder="—"
+                                  />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    )})}
+
 
                     <button
                       onClick={() => addItem(key)}
@@ -252,7 +382,12 @@ export default function PreviewModal({ result, guId, orgs, savedData, onClose, o
                   <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                   Организация не определена — выберите в выпадающем списке выше
                 </span>
-              : 'Отредактируйте данные и нажмите «Сохранить»'}
+              : levelType === 'otdel' && !selectedDeptId
+                ? <span className="text-amber-500 flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    Отдел не выбран — выберите в выпадающем списке выше
+                  </span>
+                : 'Отредактируйте данные и нажмите «Сохранить»'}
           </p>
           <div className="flex items-center gap-3">
             <button

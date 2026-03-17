@@ -2,15 +2,19 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import {
-  aiAnalyzeDocument, getOrganizations, importDocuments,
-  importParsed, previewDocument, getRecords, getAuditLog,
+  aiAnalyzeDocument, getDepartments, getOrganizations, importDocuments,
+  importParsed, saveDraft, submitDraft, previewDocument, getRecords, getAuditLog,
+  uploadDepartmentExcel, getDepartmentExcelTemplateUrl, parseExcelFile,
+  browseRecords, updateDraftStatus,
 } from '@/lib/api'
-import type { Org, ImportResult, PreviewResult, PreviewData, ImportedRecord, AuditLogEntry } from '@/lib/api'
+import type { Department, Org, ImportResult, PreviewResult, PreviewData, ImportedRecord, AuditLogEntry, ExcelFunctionRow, PositionDepartmentItem, DraftStatus } from '@/lib/api'
 import PreviewModal from '@/components/PreviewModal'
+import { useUserRole } from '@/lib/user-context'
 
 interface SavedEdit {
   data: PreviewData
   guId: string
+  deptId?: string
 }
 
 function timeAgo(dateStr: string): string {
@@ -108,6 +112,7 @@ function Pagination({ page, total, pageSize, onChange }: {
 }
 
 export default function ImportPage() {
+  const userRole = useUserRole()
   const [orgs, setOrgs] = useState<Org[]>([])
   const [selectedOrgId, setSelectedOrgId] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -125,17 +130,44 @@ export default function ImportPage() {
   const [recentRecords, setRecentRecords] = useState<ImportedRecord[]>([])
   const [recordsLoading, setRecordsLoading] = useState(true)
   // Tabs
-  const [activeTab, setActiveTab] = useState<'history' | 'audit'>('history')
+  const [activeTab, setActiveTab] = useState<'history' | 'audit' | 'registry'>('registry')
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
   const [historyPage, setHistoryPage] = useState(1)
   const [auditPage, setAuditPage] = useState(1)
+  // Registry sub-tab
+  const [adminRegSubTab, setAdminRegSubTab] = useState<'drafts' | 'registry'>('drafts')
+  const [submittingDraftId, setSubmittingDraftId] = useState<number | null>(null)
+  const [regType, setRegType] = useState<3 | 4 | 5>(4)
+  const [regItems, setRegItems] = useState<PositionDepartmentItem[]>([])
+  const [regLoading, setRegLoading] = useState(false)
+  const [regError, setRegError] = useState<string | null>(null)
+  const [regSearch, setRegSearch] = useState('')
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; filename: string } | null>(null)
 
   const [orgSearch, setOrgSearch] = useState('')
   const [orgDropOpen, setOrgDropOpen] = useState(false)
   const orgDropRef = useRef<HTMLDivElement>(null)
+
+  // Level selector: Управление vs Отдел
+  const [levelType, setLevelType] = useState<'gu' | 'otdel'>('gu')
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [selectedDeptId, setSelectedDeptId] = useState('')
+  const [deptsLoading, setDeptsLoading] = useState(false)
+  const [deptDropOpen, setDeptDropOpen] = useState(false)
+  const [deptSearch, setDeptSearch] = useState('')
+  const deptDropRef = useRef<HTMLDivElement>(null)
+  const [excelUploading, setExcelUploading] = useState(false)
+  const [excelUploadResult, setExcelUploadResult] = useState<{ rows: number } | null>(null)
+  const excelInputRef = useRef<HTMLInputElement>(null)
+
+  // Pending xlsx files attached per docx filename (uploaded to server just before import)
+  const [pendingExcels, setPendingExcels] = useState<Map<string, File>>(new Map())
+  // Parsed rows from attached xlsx — for collapse/expand in PreviewModal
+  const [excelRows, setExcelRows] = useState<Map<string, ExcelFunctionRow[]>>(new Map())
+  const xlsxInputRef = useRef<HTMLInputElement>(null)
+  const xlsxTargetRef = useRef<string | null>(null)   // which docx the picker is for
 
   const autoPreviewing = useRef<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -156,9 +188,18 @@ export default function ImportPage() {
       .finally(() => setAuditLoading(false))
   }, [])
 
-  const handleTabChange = (tab: 'history' | 'audit') => {
+  const fetchRegistry = useCallback((type: 3 | 4 | 5) => {
+    setRegLoading(true); setRegError(null)
+    browseRecords(type)
+      .then(r => setRegItems(r.content ?? []))
+      .catch(e => setRegError(e.message))
+      .finally(() => setRegLoading(false))
+  }, [])
+
+  const handleTabChange = (tab: 'history' | 'audit' | 'registry') => {
     setActiveTab(tab)
     if (tab === 'audit') fetchAuditLog()
+    if (tab === 'registry') fetchRegistry(regType)
   }
 
   useEffect(() => {
@@ -166,7 +207,8 @@ export default function ImportPage() {
       .then(setOrgs)
       .catch(() => setApiError('Не удалось подключиться к API. Проверьте, что бэкенд запущен на localhost:8000'))
     refreshRecords()
-  }, [refreshRecords])
+    fetchRegistry(4)
+  }, [refreshRecords, fetchRegistry])
 
   useEffect(() => {
     if (!orgDropOpen) return
@@ -181,6 +223,33 @@ export default function ImportPage() {
   }, [orgDropOpen])
 
   useEffect(() => {
+    if (!deptDropOpen) return
+    const handler = (e: MouseEvent) => {
+      if (deptDropRef.current && !deptDropRef.current.contains(e.target as Node)) {
+        setDeptDropOpen(false)
+        setDeptSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [deptDropOpen])
+
+  // Fetch departments whenever org selection changes in Отдел mode
+  useEffect(() => {
+    if (levelType !== 'otdel' || !selectedOrgId) {
+      setDepartments([])
+      setSelectedDeptId('')
+      return
+    }
+    setDeptsLoading(true)
+    setSelectedDeptId('')
+    getDepartments(selectedOrgId)
+      .then(setDepartments)
+      .catch(() => setDepartments([]))
+      .finally(() => setDeptsLoading(false))
+  }, [levelType, selectedOrgId])
+
+  useEffect(() => {
     files.forEach(file => {
       if (autoPreviewing.current.has(file.name)) return
       autoPreviewing.current.add(file.name)
@@ -193,14 +262,26 @@ export default function ImportPage() {
 
   const addFiles = useCallback((newFiles: FileList | null) => {
     if (!newFiles) return
-    const docx = Array.from(newFiles).filter(f => f.name.endsWith('.docx'))
+    const docx = Array.from(newFiles).filter(f => f.name.toLowerCase().endsWith('.docx'))
     setFiles(prev => {
       const existing = new Set(prev.map(f => f.name))
       return [...prev, ...docx.filter(f => !existing.has(f.name))]
     })
   }, [])
 
-  const removeFile = (name: string) => setFiles(prev => prev.filter(f => f.name !== name))
+  const removeFile = (name: string) => {
+    setFiles(prev => prev.filter(f => f.name !== name))
+    setPendingExcels(prev => { const next = new Map(prev); next.delete(name); return next })
+    setExcelRows(prev => { const next = new Map(prev); next.delete(name); return next })
+  }
+
+  const handleAttachExcel = async (docxName: string, xlsxFile: File) => {
+    setPendingExcels(prev => new Map(prev).set(docxName, xlsxFile))
+    try {
+      const rows = await parseExcelFile(xlsxFile)
+      setExcelRows(prev => new Map(prev).set(docxName, rows))
+    } catch {}
+  }
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -208,12 +289,26 @@ export default function ImportPage() {
     addFiles(e.dataTransfer.files)
   }, [addFiles])
 
+  const applyAutoDetect = (result: PreviewResult) => {
+    // Auto-set parent Управление if not already chosen
+    if (result.gu_id && !selectedOrgId) {
+      setSelectedOrgId(result.gu_id)
+    }
+    // If the backend detected an Отдел, switch to otdel mode and select it
+    // (always override dept so each previewed file selects its own Отдел)
+    if (result.suggested_dept_id) {
+      if (levelType !== 'otdel') setLevelType('otdel')
+      setSelectedDeptId(result.suggested_dept_id)
+    }
+  }
+
   const handlePreview = async (file: File) => {
     setPreviewLoading(file.name)
     setPreviewError(null)
     try {
       const result = await previewDocument(file)
       setPreviewCache(prev => new Map(prev).set(file.name, result))
+      applyAutoDetect(result)
       setPreviewResult(result)
     } catch (err: any) {
       setPreviewError(`Ошибка предпросмотра: ${err.message}`)
@@ -228,6 +323,7 @@ export default function ImportPage() {
     try {
       const result = await aiAnalyzeDocument(file)
       setPreviewCache(prev => new Map(prev).set(file.name, result))
+      applyAutoDetect(result)
       setPreviewResult(result)
     } catch (err: any) {
       setPreviewError(`Ошибка AI анализа: ${err.message}`)
@@ -241,6 +337,20 @@ export default function ImportPage() {
     if (issues.includes('missing_rights')) return 'Нет прав'
     if (issues.includes('missing_responsibilities')) return 'Нет обязанностей'
     return issues[0] ?? 'Ошибка'
+  }
+
+  const handleExcelUpload = async (file: File) => {
+    if (!selectedDeptId) return
+    setExcelUploading(true)
+    setExcelUploadResult(null)
+    try {
+      const res = await uploadDepartmentExcel(Number(selectedDeptId), file)
+      setExcelUploadResult({ rows: res.rows_loaded })
+    } catch {
+      setExcelUploadResult(null)
+    } finally {
+      setExcelUploading(false)
+    }
   }
 
   const handleImport = async () => {
@@ -261,14 +371,22 @@ export default function ImportPage() {
       for (const f of editedFiles) {
         current++
         setImportProgress({ current, total, filename: f.name })
-        const { data, guId } = savedEdits.get(f.name)!
+        const { data, guId, deptId: savedDeptId } = savedEdits.get(f.name)!
         const effectiveGuId = selectedOrgId || guId
+        const effectiveDeptId = savedDeptId || previewCache.get(f.name)?.suggested_dept_id
+          || (levelType === 'otdel' ? selectedDeptId : '')
+        const deptId = effectiveDeptId ? Number(effectiveDeptId) : undefined
+        // Upload pending xlsx if attached and dept is known
+        const pendingXlsx = pendingExcels.get(f.name)
+        if (pendingXlsx && deptId) {
+          try { await uploadDepartmentExcel(deptId, pendingXlsx) } catch {}
+        }
         if (!effectiveGuId) {
           allResults.push({ filename: f.name, status: 'error', error: 'Организация не определена' })
         } else {
           try {
             const guName = previewCache.get(f.name)?.gu_name ?? ''
-            const r = await importParsed(effectiveGuId, data, f.name, guName)
+            const r = await importParsed(effectiveGuId, data, f.name, guName, deptId)
             allResults.push({ filename: f.name, ...r })
           } catch (err: any) {
             allResults.push({ filename: f.name, status: 'error', error: err.message })
@@ -280,8 +398,16 @@ export default function ImportPage() {
       for (const f of rawFiles) {
         current++
         setImportProgress({ current, total, filename: f.name })
+        const effectiveDeptId = previewCache.get(f.name)?.suggested_dept_id
+          || (levelType === 'otdel' ? selectedDeptId : '')
+        const deptId = effectiveDeptId ? Number(effectiveDeptId) : undefined
+        // Upload pending xlsx if attached and dept is known
+        const pendingXlsx = pendingExcels.get(f.name)
+        if (pendingXlsx && deptId) {
+          try { await uploadDepartmentExcel(deptId, pendingXlsx) } catch {}
+        }
         try {
-          const res = await importDocuments([f], selectedOrgId || undefined)
+          const res = await importDocuments([f], selectedOrgId || undefined, deptId)
           allResults.push(...res.results)
         } catch (err: any) {
           allResults.push({ filename: f.name, status: 'error', error: err.message })
@@ -300,6 +426,47 @@ export default function ImportPage() {
     } finally {
       setImporting(false)
       setImportProgress(null)
+    }
+  }
+
+  const handleSaveDraft = async () => {
+    if (!files.length) return
+    setImporting(true)
+    setImportError(null)
+    setResults(null)
+    const allResults: ImportResult[] = []
+    try {
+      for (const f of files) {
+        const edit = savedEdits.get(f.name)
+        const preview = previewCache.get(f.name)
+        const guId = selectedOrgId || edit?.guId || preview?.gu_id || ''
+        const guName = preview?.gu_name ?? ''
+        if (!guId) {
+          allResults.push({ filename: f.name, status: 'error', error: 'Организация не определена' })
+          continue
+        }
+        const data = edit?.data ?? preview?.data
+        if (!data) {
+          allResults.push({ filename: f.name, status: 'skipped', skip_reason: 'Нет данных для черновика (сначала нажмите Просмотр)' })
+          continue
+        }
+        try {
+          await saveDraft(guId, data, f.name, guName)
+          allResults.push({ filename: f.name, status: 'success' })
+        } catch (err: any) {
+          allResults.push({ filename: f.name, status: 'error', error: err.message })
+        }
+      }
+      setResults(allResults)
+      setFiles([])
+      setSavedEdits(new Map())
+      setPreviewCache(new Map())
+      autoPreviewing.current.clear()
+      refreshRecords()
+    } catch (err: any) {
+      setImportError(err.message)
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -336,10 +503,37 @@ export default function ImportPage() {
             </div>
           )}
 
+          {/* Level type toggle */}
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-3)' }}>
+              Уровень
+            </label>
+            <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border-md)', background: 'var(--surface-0)' }}>
+              {(['gu', 'otdel'] as const).map(level => (
+                <button
+                  key={level}
+                  type="button"
+                  onClick={() => { setLevelType(level); setSelectedDeptId('') }}
+                  className="flex-1 py-1.5 text-[12px] font-medium transition-all duration-150"
+                  style={levelType === level ? {
+                    background: 'linear-gradient(135deg, rgba(55,114,255,0.22), rgba(99,102,241,0.15))',
+                    color: '#93b4ff',
+                    borderBottom: '2px solid #3772ff',
+                  } : {
+                    color: 'var(--text-3)',
+                    borderBottom: '2px solid transparent',
+                  }}
+                >
+                  {level === 'gu' ? 'Управление' : 'Отдел'}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Org selector */}
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-3)' }}>
-              Организация
+              {levelType === 'otdel' ? 'Управление (родитель)' : 'Организация'}
             </label>
             <div className="relative" ref={orgDropRef}>
               {/* Trigger button */}
@@ -447,6 +641,160 @@ export default function ImportPage() {
             </div>
           </div>
 
+          {/* Department selector (Отдел mode only) */}
+          {levelType === 'otdel' && (
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-3)' }}>
+                Отдел
+              </label>
+              {!selectedOrgId ? (
+                <div className="px-3 py-2 rounded-lg text-[11px]" style={{ color: 'var(--text-4)', background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
+                  Сначала выберите Управление
+                </div>
+              ) : deptsLoading ? (
+                <div className="px-3 py-2 rounded-lg text-[11px] flex items-center gap-2" style={{ color: 'var(--text-4)', background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
+                  <span className="inline-block w-3 h-3 border border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--text-4)', borderTopColor: 'transparent' }} />
+                  Загрузка отделов...
+                </div>
+              ) : (
+                <div className="relative" ref={deptDropRef}>
+                  <button
+                    type="button"
+                    onClick={() => { setDeptDropOpen(v => !v); setDeptSearch('') }}
+                    className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-[12px] font-medium transition-all outline-none border"
+                    style={{
+                      background: 'var(--surface-0)',
+                      borderColor: deptDropOpen ? '#3772ff' : 'var(--border-md)',
+                      color: selectedDeptId ? 'var(--text-2)' : 'var(--text-4)',
+                      boxShadow: deptDropOpen ? '0 0 0 2px rgba(55,114,255,0.12)' : 'none',
+                    }}
+                  >
+                    <span className="truncate text-left">
+                      {selectedDeptId
+                        ? (departments.find(d => String(d.id) === selectedDeptId)?.name ?? '—')
+                        : '— Выберите отдел —'}
+                    </span>
+                    <svg className="w-3.5 h-3.5 shrink-0 ml-2 transition-transform" style={{ color: 'var(--text-4)', transform: deptDropOpen ? 'rotate(180deg)' : 'none' }}
+                         fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {deptDropOpen && (
+                    <div className="absolute z-50 mt-1 w-full rounded-xl overflow-hidden"
+                         style={{ background: 'var(--surface-1)', border: '1px solid var(--border-md)', boxShadow: '0 8px 32px rgba(0,0,0,0.35)' }}>
+                      <div className="p-2 border-b" style={{ borderColor: 'var(--divide)' }}>
+                        <div className="relative">
+                          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={{ color: 'var(--text-4)' }}
+                               fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <circle cx="11" cy="11" r="8"/><path strokeLinecap="round" d="m21 21-4.35-4.35"/>
+                          </svg>
+                          <input autoFocus type="text" value={deptSearch} onChange={e => setDeptSearch(e.target.value)}
+                                 placeholder="Поиск отдела..."
+                                 className="w-full pl-8 pr-3 py-1.5 rounded-lg text-[12px] outline-none border"
+                                 style={{ background: 'var(--surface-0)', borderColor: 'var(--border)', color: 'var(--text-1)' }} />
+                        </div>
+                      </div>
+                      <div className="max-h-56 overflow-y-auto py-1">
+                        {departments
+                          .filter(d => d.name.toLowerCase().includes(deptSearch.toLowerCase()))
+                          .map(dept => (
+                            <button key={dept.id} type="button"
+                                    onClick={() => { setSelectedDeptId(String(dept.id)); setDeptDropOpen(false); setDeptSearch('') }}
+                                    className="w-full text-left px-3 py-2 text-[12px] transition-colors"
+                                    style={{
+                                      color: String(dept.id) === selectedDeptId ? '#3772ff' : 'var(--text-2)',
+                                      background: String(dept.id) === selectedDeptId ? 'rgba(55,114,255,0.08)' : 'transparent',
+                                    }}
+                                    onMouseEnter={e => { if (String(dept.id) !== selectedDeptId) (e.currentTarget as HTMLElement).style.background = 'var(--surface-hover)' }}
+                                    onMouseLeave={e => { if (String(dept.id) !== selectedDeptId) (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+                              <span className="block truncate">{dept.name}</span>
+                              {dept.short_name && <span className="text-[10px] opacity-50">{dept.short_name}</span>}
+                            </button>
+                          ))}
+                        {departments.filter(d => d.name.toLowerCase().includes(deptSearch.toLowerCase())).length === 0 && (
+                          <p className="px-3 py-3 text-[11px] text-center" style={{ color: 'var(--text-4)' }}>Ничего не найдено</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Excel upload + template download */}
+              {selectedDeptId && (
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    ref={excelInputRef}
+                    type="file"
+                    accept=".xlsx"
+                    className="hidden"
+                    onChange={e => {
+                      const f = e.target.files?.[0]
+                      if (f) { handleExcelUpload(f); e.target.value = '' }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => excelInputRef.current?.click()}
+                    disabled={excelUploading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors"
+                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-md)', color: 'var(--text-2)' }}
+                  >
+                    {excelUploading ? (
+                      <span className="inline-block w-3 h-3 border border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--text-4)', borderTopColor: 'transparent' }} />
+                    ) : (
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                      </svg>
+                    )}
+                    {excelUploading ? 'Загрузка...' : 'Загрузить Excel функций'}
+                    {excelUploadResult && !excelUploading && (
+                      <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>
+                        {excelUploadResult.rows} строк
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http')
+                        const res = await tauriFetch(getDepartmentExcelTemplateUrl(), { headers: {} })
+                        const buf = await res.arrayBuffer()
+                        const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.href = url; a.download = 'otdel_functions_template.xlsx'; a.click()
+                        URL.revokeObjectURL(url)
+                      } catch {}
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors"
+                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-md)', color: 'var(--text-3)' }}
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Шаблон
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Hidden xlsx picker — triggered per file */}
+          <input
+            ref={xlsxInputRef}
+            type="file"
+            accept=".xlsx"
+            className="hidden"
+            onChange={e => {
+              const xf = e.target.files?.[0]
+              if (xf && xlsxTargetRef.current) handleAttachExcel(xlsxTargetRef.current, xf)
+              e.target.value = ''
+            }}
+          />
+
           {/* Drop zone */}
           <div
             onDrop={handleDrop}
@@ -523,6 +871,20 @@ export default function ImportPage() {
                       </div>
                       {/* Row 2: action buttons */}
                       <div className="flex items-center gap-1.5 mt-2 ml-8">
+                        {/* Excel attachment button */}
+                        <button
+                          onClick={() => { xlsxTargetRef.current = f.name; xlsxInputRef.current?.click() }}
+                          title={pendingExcels.has(f.name) ? `Excel: ${pendingExcels.get(f.name)!.name}` : 'Прикрепить Excel функций'}
+                          className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md transition-all"
+                          style={pendingExcels.has(f.name)
+                            ? { color: '#22c55e', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)' }
+                            : { color: 'var(--text-3)', background: 'var(--surface-1)', border: '1px solid var(--border-md)' }}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+                          </svg>
+                          {pendingExcels.has(f.name) ? '✓ Excel' : 'Excel'}
+                        </button>
                         <button
                           onClick={() => handlePreview(f)}
                           disabled={previewLoading === f.name || aiLoading === f.name}
@@ -582,7 +944,7 @@ export default function ImportPage() {
                     style={{ background: 'var(--badge-err-bg)', color: 'var(--badge-err-fg)' }}>✗ {errorCount}</span>}
                 </div>
               </div>
-              <div className="divide-y divide-[var(--divide-md)] max-h-48 overflow-y-auto">
+              <div className="divide-y divide-[var(--divide-md)] max-h-72 overflow-y-auto">
                 {results.map(r => (
                   <div key={r.filename} className="flex items-start gap-2.5 px-3.5 py-2.5">
                     <div className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5"
@@ -596,7 +958,7 @@ export default function ImportPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] font-semibold truncate" style={{ color: 'var(--text-2)' }}>{r.filename}</p>
-                      <p className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--text-3)' }}>
+                      <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)', wordBreak: 'break-word' }}>
                         {r.status === 'success' && <>ID: <span className="font-mono font-semibold text-gov-blue">{r.record_id}</span>{r.gu_name ? ` · ${r.gu_name}` : ''}{(r.functions_created ?? 0) > 0 ? <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'var(--badge-ok-bg)', color: 'var(--badge-ok-fg)' }}>+{r.functions_created} функц.</span> : null}</>}
                         {r.status === 'skipped' && r.skip_reason}
                         {r.status === 'error'   && r.error}
@@ -639,23 +1001,39 @@ export default function ImportPage() {
               </div>
             </div>
           )}
-          <div className="p-4">
-            <button
-              onClick={handleImport}
-              disabled={!files.length || importing}
-              className="w-full py-2.5 bg-gov-blue hover:bg-gov-blue-hover active:bg-gov-blue-active disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl text-sm transition-all shadow-sm hover:shadow-md"
-            >
-              {importing
-                ? (
+          <div className="p-4 flex flex-col gap-2">
+            {userRole === 'operator' ? (
+              <button
+                onClick={handleSaveDraft}
+                disabled={!files.length || importing}
+                className="w-full py-2.5 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl text-sm transition-all shadow-sm hover:shadow-md"
+                style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+              >
+                {importing ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    {importProgress
-                      ? `Файл ${importProgress.current} из ${importProgress.total}...`
-                      : 'Импортируем...'}
+                    Сохраняем черновики...
                   </span>
-                )
-                : `Импортировать${files.length ? ` (${files.length})` : ''}`}
-            </button>
+                ) : `Сохранить черновик${files.length ? ` (${files.length})` : ''}`}
+              </button>
+            ) : (
+              <button
+                onClick={handleImport}
+                disabled={!files.length || importing}
+                className="w-full py-2.5 bg-gov-blue hover:bg-gov-blue-hover active:bg-gov-blue-active disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl text-sm transition-all shadow-sm hover:shadow-md"
+              >
+                {importing
+                  ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      {importProgress
+                        ? `Файл ${importProgress.current} из ${importProgress.total}...`
+                        : 'Импортируем...'}
+                    </span>
+                  )
+                  : `Импортировать${files.length ? ` (${files.length})` : ''}`}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -701,8 +1079,9 @@ export default function ImportPage() {
         <div className="shrink-0 px-6 border-b flex items-center gap-0"
              style={{ background: 'var(--surface-1)', borderColor: 'var(--border)' }}>
           {([
-            { id: 'history', label: 'История импорта' },
-            { id: 'audit',   label: 'Журнал действий' },
+            { id: 'registry', label: 'Реестр' },
+            { id: 'history',  label: 'История импорта' },
+            { id: 'audit',    label: 'Журнал действий' },
           ] as const).map(tab => (
             <button
               key={tab.id}
@@ -725,6 +1104,12 @@ export default function ImportPage() {
                 <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
                       style={{ background: activeTab === 'audit' ? 'rgba(55,114,255,0.15)' : 'var(--surface-0)', color: activeTab === 'audit' ? '#3772ff' : 'var(--text-4)' }}>
                   {auditLog.length}
+                </span>
+              )}
+              {tab.id === 'registry' && !regLoading && regItems.length > 0 && (
+                <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                      style={{ background: activeTab === 'registry' ? 'rgba(55,114,255,0.15)' : 'var(--surface-0)', color: activeTab === 'registry' ? '#3772ff' : 'var(--text-4)' }}>
+                  {regItems.length}
                 </span>
               )}
             </button>
@@ -893,6 +1278,412 @@ export default function ImportPage() {
               </div>
             )
           )}
+          {/* ── Registry tab ─────────────────────────────────────── */}
+          {activeTab === 'registry' && userRole === 'operator' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+                  Мои черновики (не отправленные в planning.gov.kz)
+                </p>
+                <button onClick={refreshRecords} className="text-[11px] px-2.5 py-1.5 rounded-lg border transition-all"
+                        style={{ borderColor: 'var(--border)', color: 'var(--text-3)', background: 'var(--surface-0)' }}>↻</button>
+              </div>
+              {(() => {
+                const drafts = recentRecords.filter(r => r.status === 'pending')
+                if (!drafts.length) return (
+                  <div className="card py-16 flex flex-col items-center gap-2">
+                    <p className="text-sm font-semibold" style={{ color: 'var(--text-3)' }}>Нет черновиков</p>
+                    <p className="text-xs" style={{ color: 'var(--text-4)' }}>Загрузите документы и нажмите «Сохранить черновик»</p>
+                  </div>
+                )
+                return (
+                  <div className="card overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b" style={{ background: 'var(--surface-0)', borderColor: 'var(--border)' }}>
+                          {['Документ', 'Организация', 'Данные', 'Статус', 'Дата', ''].map(h => (
+                            <th key={h} className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {drafts.map((r, idx) => (
+                          <tr key={r.id} className="border-b transition-colors"
+                              style={{ background: idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)', borderColor: 'var(--divide)' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
+                              onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)')}>
+                            <td className="px-4 py-2.5 max-w-[220px]">
+                              <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-1)' }}>{r.filename}</p>
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                                    style={{ background: 'rgba(251,191,36,0.12)', color: 'rgba(251,191,36,1)' }}>Черновик</span>
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <span className="text-[11px] break-words leading-snug block" style={{ color: 'var(--text-2)', maxWidth: '260px' }}>{r.gu_name || r.gu_id || '—'}</span>
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {[
+                                  { v: r.tasks_count,            label: 'зад', c: 'rgba(55,114,255,0.12)',  t: '#60a5fa' },
+                                  { v: r.rights_count,           label: 'пр',  c: 'rgba(16,185,129,0.12)', t: '#34d399' },
+                                  { v: r.functions_count,        label: 'фун', c: 'rgba(167,139,250,0.15)',t: '#a78bfa' },
+                                ].map(({ v, label, c, t }) => (
+                                  <span key={label} className="text-[10px] font-semibold px-1 py-0.5 rounded"
+                                        style={{ background: c, color: t }}>{v} {label}</span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5">
+                              {(() => {
+                                const DRAFT_STATUSES: { value: DraftStatus; label: string; bg: string; color: string }[] = [
+                                  { value: 'in_progress', label: 'В работе',     bg: 'rgba(251,191,36,0.12)',  color: 'rgba(251,191,36,1)'  },
+                                  { value: 'review',      label: 'На проверке',  bg: 'rgba(55,114,255,0.12)',  color: '#93b4ff'             },
+                                  { value: 'revision',    label: 'На доработке', bg: 'rgba(239,68,68,0.12)',   color: '#f87171'             },
+                                  { value: 'approved',    label: 'Согласован',   bg: 'rgba(16,185,129,0.12)', color: '#34d399'             },
+                                ]
+                                const cur = DRAFT_STATUSES.find(s => s.value === r.draft_status) ?? DRAFT_STATUSES[0]
+                                return (
+                                  <div className="relative inline-flex items-center">
+                                    <select
+                                      value={r.draft_status ?? 'in_progress'}
+                                      onChange={async e => {
+                                        const next = e.target.value as DraftStatus
+                                        try {
+                                          await updateDraftStatus(r.id, next)
+                                          setRecentRecords(prev => prev.map(x => x.id === r.id ? { ...x, draft_status: next } : x))
+                                        } catch {}
+                                      }}
+                                      className="text-[10px] font-semibold pl-2.5 pr-6 py-1 rounded-full cursor-pointer outline-none border"
+                                      style={{
+                                        background: cur.bg,
+                                        color: cur.color,
+                                        borderColor: cur.color + '55',
+                                        appearance: 'none',
+                                        WebkitAppearance: 'none',
+                                      }}
+                                    >
+                                      {DRAFT_STATUSES.map(s => (
+                                        <option key={s.value} value={s.value}
+                                                style={{ background: 'var(--surface-1)', color: 'var(--text-1)' }}>
+                                          {s.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <svg
+                                      className="pointer-events-none absolute right-1.5 w-3 h-3"
+                                      style={{ color: cur.color }}
+                                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  </div>
+                                )
+                              })()}
+                            </td>
+                            <td className="px-4 py-2.5 text-[11px] whitespace-nowrap" style={{ color: 'var(--text-4)' }}>
+                              {new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <button
+                                onClick={() => {
+                                  const preview: PreviewResult = {
+                                    filename: r.filename,
+                                    gu_id: r.gu_id || null,
+                                    gu_name: r.gu_name || null,
+                                    detected_source: null,
+                                    stats: {
+                                      rights: r.rights_count,
+                                      responsibilities: r.responsibilities_count,
+                                      tasks: r.tasks_count,
+                                      functions: r.functions_count,
+                                    },
+                                    issues: [],
+                                    warnings: [],
+                                    can_import: false,
+                                    data: r.data ?? {
+                                      general_provisions: '',
+                                      tasks: [],
+                                      authorities_rights: [],
+                                      authorities_responsibilities: [],
+                                      functions: [],
+                                      additions: '',
+                                    },
+                                  }
+                                  setPreviewResult(preview)
+                                }}
+                                className="text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all"
+                                style={{ background: 'rgba(55,114,255,0.12)', color: '#93b4ff', border: '1px solid rgba(55,114,255,0.2)' }}
+                                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(55,114,255,0.22)' }}
+                                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(55,114,255,0.12)' }}
+                              >
+                                Редактировать
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
+          {activeTab === 'registry' && userRole === 'admin' && (
+            <div className="space-y-3">
+              {/* Top-level sub-tabs: Черновики / Реестр */}
+              <div className="flex items-center gap-1 p-0.5 rounded-lg self-start" style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
+                {([
+                  { id: 'drafts',   label: 'Черновики операторов' },
+                  { id: 'registry', label: 'Реестр planning.gov.kz' },
+                ] as const).map(({ id, label }) => (
+                  <button key={id} onClick={() => setAdminRegSubTab(id)}
+                    className="px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all"
+                    style={adminRegSubTab === id
+                      ? { background: 'var(--surface-hover)', color: 'var(--text-1)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }
+                      : { color: 'var(--text-3)' }}>
+                    {label}
+                    {id === 'drafts' && recentRecords.filter(r => r.status === 'pending').length > 0 && (
+                      <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                            style={{ background: 'rgba(251,191,36,0.18)', color: 'rgba(251,191,36,1)' }}>
+                        {recentRecords.filter(r => r.status === 'pending').length}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── Drafts sub-tab ── */}
+              {adminRegSubTab === 'drafts' && (() => {
+                const DRAFT_STATUSES: { value: DraftStatus; label: string; bg: string; color: string }[] = [
+                  { value: 'in_progress', label: 'В работе',      bg: 'rgba(251,191,36,0.12)',  color: 'rgba(251,191,36,1)'  },
+                  { value: 'review',      label: 'На проверке',   bg: 'rgba(55,114,255,0.12)',  color: '#93b4ff'             },
+                  { value: 'revision',    label: 'На доработке',  bg: 'rgba(239,68,68,0.12)',   color: '#f87171'             },
+                  { value: 'approved',    label: 'Согласован',    bg: 'rgba(16,185,129,0.12)', color: '#34d399'             },
+                ]
+                const drafts = recentRecords.filter(r => r.status === 'pending')
+                if (!drafts.length) return (
+                  <div className="card py-16 flex flex-col items-center gap-2">
+                    <p className="text-sm font-semibold" style={{ color: 'var(--text-3)' }}>Нет черновиков</p>
+                    <p className="text-xs" style={{ color: 'var(--text-4)' }}>Операторы ещё не сохранили ни одного документа</p>
+                  </div>
+                )
+                return (
+                  <div className="card overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b" style={{ background: 'var(--surface-0)', borderColor: 'var(--border)' }}>
+                          {['Документ', 'Организация', 'Данные', 'Статус', 'Дата', 'Действия'].map(h => (
+                            <th key={h} className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {drafts.map((r, idx) => {
+                          const cur = DRAFT_STATUSES.find(s => s.value === r.draft_status) ?? DRAFT_STATUSES[0]
+                          return (
+                            <tr key={r.id} className="border-b transition-colors"
+                                style={{ background: idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)', borderColor: 'var(--divide)' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
+                                onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)')}>
+                              <td className="px-4 py-2.5 max-w-[200px]">
+                                <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-1)' }}>{r.filename}</p>
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                                      style={{ background: 'rgba(251,191,36,0.12)', color: 'rgba(251,191,36,1)' }}>Черновик</span>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className="text-[11px] break-words leading-snug block" style={{ color: 'var(--text-2)', maxWidth: '220px' }}>{r.gu_name || r.gu_id || '—'}</span>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {[
+                                    { v: r.tasks_count,     label: 'зад', c: 'rgba(55,114,255,0.12)',   t: '#60a5fa' },
+                                    { v: r.rights_count,    label: 'пр',  c: 'rgba(16,185,129,0.12)',  t: '#34d399' },
+                                    { v: r.functions_count, label: 'фун', c: 'rgba(167,139,250,0.15)', t: '#a78bfa' },
+                                  ].map(({ v, label, c, t }) => (
+                                    <span key={label} className="text-[10px] font-semibold px-1 py-0.5 rounded"
+                                          style={{ background: c, color: t }}>{v} {label}</span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <div className="relative inline-flex items-center">
+                                  <select
+                                    value={r.draft_status ?? 'in_progress'}
+                                    onChange={async e => {
+                                      const next = e.target.value as DraftStatus
+                                      try {
+                                        await updateDraftStatus(r.id, next)
+                                        setRecentRecords(prev => prev.map(x => x.id === r.id ? { ...x, draft_status: next } : x))
+                                      } catch {}
+                                    }}
+                                    className="text-[10px] font-semibold pl-2.5 pr-6 py-1 rounded-full cursor-pointer outline-none border"
+                                    style={{ background: cur.bg, color: cur.color, borderColor: cur.color + '55', appearance: 'none', WebkitAppearance: 'none' }}
+                                  >
+                                    {DRAFT_STATUSES.map(s => (
+                                      <option key={s.value} value={s.value} style={{ background: 'var(--surface-1)', color: 'var(--text-1)' }}>
+                                        {s.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <svg className="pointer-events-none absolute right-1.5 w-3 h-3" style={{ color: cur.color }}
+                                       fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                  </svg>
+                                </div>
+                              </td>
+                              <td className="px-4 py-2.5 text-[11px] whitespace-nowrap" style={{ color: 'var(--text-4)' }}>
+                                {new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <div className="flex items-center gap-1.5">
+                                  {/* Preview */}
+                                  <button
+                                    onClick={() => {
+                                      setPreviewResult({
+                                        filename: r.filename, gu_id: r.gu_id || null, gu_name: r.gu_name || null,
+                                        detected_source: null,
+                                        stats: { rights: r.rights_count, responsibilities: r.responsibilities_count, tasks: r.tasks_count, functions: r.functions_count },
+                                        issues: [], warnings: [], can_import: false,
+                                        data: r.data ?? { general_provisions: '', tasks: [], authorities_rights: [], authorities_responsibilities: [], functions: [], additions: '' },
+                                      })
+                                    }}
+                                    className="text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all"
+                                    style={{ background: 'rgba(55,114,255,0.10)', color: '#93b4ff', border: '1px solid rgba(55,114,255,0.2)' }}
+                                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(55,114,255,0.20)' }}
+                                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(55,114,255,0.10)' }}
+                                  >Редактировать</button>
+                                  {/* Submit to planning.gov.kz */}
+                                  <button
+                                    disabled={submittingDraftId === r.id}
+                                    onClick={async () => {
+                                      setSubmittingDraftId(r.id)
+                                      try {
+                                        await submitDraft(r.id)
+                                        await refreshRecords()
+                                      } catch (e: any) {
+                                        alert('Ошибка: ' + e?.message)
+                                      } finally {
+                                        setSubmittingDraftId(null)
+                                      }
+                                    }}
+                                    className="text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all"
+                                    style={{ background: 'rgba(16,185,129,0.10)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)', opacity: submittingDraftId === r.id ? 0.5 : 1 }}
+                                    onMouseEnter={e => { if (submittingDraftId !== r.id) (e.currentTarget as HTMLElement).style.background = 'rgba(16,185,129,0.20)' }}
+                                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(16,185,129,0.10)' }}
+                                  >
+                                    {submittingDraftId === r.id ? '...' : 'Загрузить'}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })()}
+
+              {/* ── Registry sub-tab ── */}
+              {adminRegSubTab === 'registry' && (
+                <>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
+                      {([{ type: 3, label: 'Департамент' }, { type: 4, label: 'Управление' }, { type: 5, label: 'Отдел' }] as const).map(({ type, label }) => (
+                        <button key={type} onClick={() => { setRegType(type); fetchRegistry(type) }}
+                          className="px-3 py-1 rounded-md text-[11px] font-semibold transition-all"
+                          style={regType === type
+                            ? { background: 'var(--surface-hover)', color: 'var(--text-1)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }
+                            : { color: 'var(--text-3)' }}
+                        >{label}</button>
+                      ))}
+                    </div>
+                    <div className="relative flex-1 min-w-[180px]">
+                      <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 pointer-events-none" style={{ color: 'var(--text-4)' }}
+                           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                      </svg>
+                      <input value={regSearch} onChange={e => setRegSearch(e.target.value)}
+                        placeholder="Поиск..." className="w-full pl-7 pr-3 py-1.5 rounded-lg text-[11px] border outline-none"
+                        style={{ background: 'var(--surface-0)', border: '1px solid var(--border)', color: 'var(--text-1)' }} />
+                    </div>
+                    <button onClick={() => fetchRegistry(regType)} className="text-[11px] px-2.5 py-1.5 rounded-lg border transition-all"
+                            style={{ borderColor: 'var(--border)', color: 'var(--text-3)', background: 'var(--surface-0)' }}>↻</button>
+                  </div>
+                  {regLoading ? (
+                    <div className="flex items-center justify-center h-32 text-sm" style={{ color: 'var(--text-4)' }}>Загрузка...</div>
+                  ) : regError ? (
+                    <div className="flex flex-col items-center justify-center h-32 text-center">
+                      <p className="text-sm font-semibold" style={{ color: 'var(--badge-err-fg)' }}>Ошибка</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--text-4)' }}>{regError}</p>
+                    </div>
+                  ) : (
+                    <div className="card overflow-hidden">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b" style={{ background: 'var(--surface-0)', borderColor: 'var(--border)' }}>
+                            {['ID', 'Организация', 'Статус', 'Зад', 'Пр', 'Об', 'Фун', ''].map(h => (
+                              <th key={h} className="px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(regSearch.trim()
+                            ? regItems.filter(it => (it.guName ?? '').toLowerCase().includes(regSearch.toLowerCase()) || (it.departmentName ?? '').toLowerCase().includes(regSearch.toLowerCase()))
+                            : regItems
+                          ).map((item, idx) => {
+                            const name = item.guName || item.departmentName || item.committeeName || '—'
+                            const statusCode = item.statusObj?.code ?? ''
+                            const statusLabel = item.statusObj?.nameRu ?? statusCode
+                            const statusColor = statusCode === 'APPROVED' ? '#34d399' : statusCode === 'DRAFT' ? '#fbbf24' : '#60a5fa'
+                            return (
+                              <tr key={item.id} className="border-b transition-colors"
+                                  style={{ background: idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)', borderColor: 'var(--divide)' }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
+                                  onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)')}>
+                                <td className="px-3 py-2">
+                                  <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded"
+                                        style={{ background: 'rgba(55,114,255,0.12)', color: '#60a5fa' }}>#{item.id}</span>
+                                </td>
+                                <td className="px-3 py-2 max-w-[220px]">
+                                  <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-1)' }}>{name}</p>
+                                </td>
+                                <td className="px-3 py-2">
+                                  {statusLabel && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold">
+                                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: statusColor }} />
+                                      <span style={{ color: statusColor }}>{statusLabel}</span>
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-center text-[11px]" style={{ color: 'var(--text-3)' }}>{item.tasks?.length ?? '—'}</td>
+                                <td className="px-3 py-2 text-center text-[11px]" style={{ color: 'var(--text-3)' }}>{item.authoritiesLaw?.length ?? '—'}</td>
+                                <td className="px-3 py-2 text-center text-[11px]" style={{ color: 'var(--text-3)' }}>{item.authoritiesResponsibilities?.length ?? '—'}</td>
+                                <td className="px-3 py-2 text-center text-[11px]" style={{ color: 'var(--text-3)' }}>{item.functions?.length ?? '—'}</td>
+                                <td className="px-3 py-2">
+                                  <a href={`https://planning.gov.kz/rgffront#/rgffront/filter/positions/department/${item.id}/edit`}
+                                     target="_blank" rel="noopener noreferrer"
+                                     className="inline-flex items-center justify-center w-6 h-6 rounded transition-all"
+                                     style={{ color: 'var(--text-4)', border: '1px solid var(--border)' }}
+                                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#60a5fa'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(55,114,255,0.3)' }}
+                                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-4)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}>
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                                    </svg>
+                                  </a>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
 
@@ -901,10 +1692,22 @@ export default function ImportPage() {
           result={previewResult}
           guId={savedEdits.get(previewResult.filename)?.guId || selectedOrgId || previewResult.gu_id || undefined}
           orgs={orgs}
+          levelType={levelType}
+          departments={levelType === 'otdel' ? departments : undefined}
+          deptId={savedEdits.get(previewResult.filename)?.deptId || selectedDeptId || previewResult.suggested_dept_id || undefined}
           savedData={savedEdits.get(previewResult.filename)?.data}
+          excelRows={excelRows.get(previewResult.filename)}
           onClose={() => setPreviewResult(null)}
-          onSave={(data, guId) => {
-            setSavedEdits(prev => new Map(prev).set(previewResult.filename, { data, guId: guId || selectedOrgId || previewResult.gu_id || '' }))
+          onExcelRowsChange={rows => {
+            const name = previewResult.filename
+            setExcelRows(prev => new Map(prev).set(name, rows))
+          }}
+          onSave={(data, guId, deptId) => {
+            setSavedEdits(prev => new Map(prev).set(previewResult.filename, {
+              data,
+              guId: guId || selectedOrgId || previewResult.gu_id || '',
+              deptId: deptId || selectedDeptId || undefined,
+            }))
             setPreviewResult(null)
           }}
         />

@@ -2,7 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useState } from 'react'
 import { useTheme } from './ThemeProvider'
+import { syncDicts } from '@/lib/api'
+import type { UserRole } from '@/lib/user-context'
 
 const links = [
   { href: '/',        label: 'Импорт',  icon: (
@@ -15,11 +18,34 @@ const links = [
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
     </svg>
   )},
+  { href: '/browse', label: 'Реестр', icon: (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+    </svg>
+  )},
 ]
 
-export default function NavBar({ onLogout }: { onLogout?: () => void }) {
+export default function NavBar({ onLogout, role }: { onLogout?: () => void; role?: UserRole }) {
   const pathname = usePathname()
   const { theme, toggle } = useTheme()
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<string | null>(null)
+
+  async function handleSync() {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const res = await syncDicts()
+      const total = Object.values(res.synced).reduce((a, b) => a + b, 0)
+      setSyncResult(`✓ ${total}`)
+    } catch (e: any) {
+      console.error('sync-dicts error:', e?.message)
+      setSyncResult('! ' + (e?.message ?? 'error').slice(0, 40))
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setSyncResult(null), 4000)
+    }
+  }
 
   return (
     <header
@@ -98,6 +124,21 @@ export default function NavBar({ onLogout }: { onLogout?: () => void }) {
       {/* Right side */}
       <div className="ml-auto flex items-center gap-2">
 
+        {/* Role badge */}
+        {role && (
+          <span
+            className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+            style={role === 'admin'
+              ? { background: 'rgba(55,114,255,0.15)', color: '#93b4ff', border: '1px solid rgba(55,114,255,0.25)' }
+              : { background: 'rgba(16,185,129,0.12)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.22)' }
+            }
+          >
+            {role === 'admin' ? 'Администратор' : 'Оператор'}
+          </span>
+        )}
+
+        <div className="h-4 w-px bg-white/[0.08] mx-1" />
+
         {/* Status dot */}
         <div className="flex items-center gap-1.5 mr-1">
           <div className="relative w-1.5 h-1.5">
@@ -108,6 +149,39 @@ export default function NavBar({ onLogout }: { onLogout?: () => void }) {
             Алматы
           </span>
         </div>
+
+        <div className="h-4 w-px bg-white/[0.08] mx-1" />
+
+        {/* Sync dicts */}
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          title="Синхронизировать справочники planning.gov.kz"
+          className="flex items-center gap-1.5 h-8 px-2 min-w-8 justify-center rounded-lg transition-all duration-150 relative"
+          style={{ color: syncResult?.startsWith('!') ? '#f87171' : syncResult ? '#34d399' : 'rgba(255,255,255,0.35)' }}
+          onMouseEnter={e => {
+            if (!syncing) {
+              (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.8)'
+              ;(e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.07)'
+            }
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.color = syncResult?.startsWith('!') ? '#f87171' : syncResult ? '#34d399' : 'rgba(255,255,255,0.35)'
+            ;(e.currentTarget as HTMLElement).style.background = 'transparent'
+          }}
+        >
+          {syncing ? (
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          ) : syncResult ? (
+            <span className="text-[11px] font-bold">{syncResult}</span>
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+            </svg>
+          )}
+        </button>
 
         <div className="h-4 w-px bg-white/[0.08] mx-1" />
 
