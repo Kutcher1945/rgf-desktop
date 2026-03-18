@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { getDepartments } from '@/lib/api'
-import type { Org, Department, PreviewResult, PreviewData, ExcelFunctionRow } from '@/lib/api'
+import { getDepartments, getDicts } from '@/lib/api'
+import type { Org, Department, PreviewResult, PreviewData, ExcelFunctionRow, Dicts, DictItem } from '@/lib/api'
 
 interface Props {
   result: PreviewResult
@@ -74,6 +74,205 @@ function matchExcelRow(fnText: string, rows: ExcelFunctionRow[]): ExcelFunctionR
   return bestScore >= Math.max(2, Math.floor(words.length * 0.4)) ? best : undefined
 }
 
+// ─── Excel metadata panel with dict dropdowns ────────────────────────────────
+
+type UpdateFn = (rowIndex: number, field: keyof ExcelFunctionRow, value: string | boolean | number | undefined) => void
+
+function DictSelect({ label, value, idValue, items, onChange, placeholder = '— не выбрано —' }: {
+  label: string
+  value: string
+  idValue?: number
+  items: DictItem[]
+  onChange: (name: string, id: number | undefined) => void
+  placeholder?: string
+}) {
+  const cls = "flex-1 text-[11px] rounded border px-1.5 py-0.5 outline-none focus:border-purple-400 bg-white"
+  const style = { color: '#4c1d95', borderColor: '#e9d5ff' }
+  return (
+    <div className="flex items-center gap-2 px-3 py-1 border-b border-purple-100 last:border-0">
+      <span className="shrink-0 font-medium" style={{ color: '#7c3aed', minWidth: 130 }}>{label}</span>
+      <select
+        value={idValue ?? ''}
+        onChange={e => {
+          const id = e.target.value ? Number(e.target.value) : undefined
+          const item = items.find(x => x.id === id)
+          onChange(item?.name ?? '', id)
+        }}
+        className={cls}
+        style={style}
+      >
+        <option value="">{placeholder}</option>
+        {items.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+      </select>
+    </div>
+  )
+}
+
+function TextField({ label, field, row, rowIndex, onUpdate }: {
+  label: string
+  field: keyof ExcelFunctionRow
+  row: ExcelFunctionRow
+  rowIndex: number
+  onUpdate: UpdateFn
+}) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-1 border-b border-purple-100 last:border-0">
+      <span className="shrink-0 font-medium" style={{ color: '#7c3aed', minWidth: 130 }}>{label}</span>
+      <input
+        type="text"
+        value={(row[field] as string) ?? ''}
+        onChange={e => onUpdate(rowIndex, field, e.target.value)}
+        className="flex-1 text-[11px] rounded border px-1.5 py-0.5 outline-none focus:border-purple-400 bg-white"
+        style={{ color: '#4c1d95', borderColor: '#e9d5ff' }}
+        placeholder="—"
+      />
+    </div>
+  )
+}
+
+function ExcelMetaPanel({ row, rowIndex, dicts, onUpdate }: {
+  row: ExcelFunctionRow
+  rowIndex: number
+  dicts: Dicts | null
+  onUpdate: UpdateFn
+}) {
+  const subAreas = dicts?.sub_activity_areas.filter(x => !row.activity_area_id || x.area_id === row.activity_area_id) ?? []
+  const subGroups = dicts?.functional_subgroups.filter(x => !row.functional_group_id || x.group_id === row.functional_group_id) ?? []
+
+  return (
+    <div className="ml-12 mr-4 mb-2 rounded-lg overflow-hidden text-[11px]" style={{ background: '#faf5ff', border: '1px solid #e9d5ff' }}>
+
+      {/* Название функции (KZ) */}
+      <TextField label="Функция (каз.)" field="function_name_kz" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+
+      {/* Тип функции */}
+      {dicts ? (
+        <DictSelect
+          label="Тип функции"
+          value={row.function_type ?? ''}
+          idValue={row.function_type_id}
+          items={dicts.function_types}
+          onChange={(name, id) => { onUpdate(rowIndex, 'function_type', name); onUpdate(rowIndex, 'function_type_id', id) }}
+        />
+      ) : (
+        <TextField label="Тип функции" field="function_type" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      )}
+
+      {/* Целевая задача */}
+      <TextField label="Целевая задача" field="target_task" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+
+      {/* Описание */}
+      <TextField label="Описание" field="function_description" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+
+      {/* Структурный элемент */}
+      <TextField label="Структурный элемент" field="structural_element" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+
+      {/* Результат */}
+      <TextField label="Результат" field="result_description" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+
+      {/* Сфера деятельности */}
+      {dicts ? (
+        <DictSelect
+          label="Сфера деятельности"
+          value={row.activity_area_name ?? ''}
+          idValue={row.activity_area_id}
+          items={dicts.activity_areas}
+          onChange={(name, id) => {
+            onUpdate(rowIndex, 'activity_area_name', name)
+            onUpdate(rowIndex, 'activity_area_id', id)
+            // Reset sub-area when area changes
+            onUpdate(rowIndex, 'sub_activity_area_name', '')
+            onUpdate(rowIndex, 'sub_activity_area_id', undefined)
+          }}
+        />
+      ) : (
+        <TextField label="Сфера деятельности" field="activity_area_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      )}
+
+      {/* Подсфера */}
+      {dicts ? (
+        <DictSelect
+          label="Подсфера"
+          value={row.sub_activity_area_name ?? ''}
+          idValue={row.sub_activity_area_id}
+          items={subAreas}
+          onChange={(name, id) => { onUpdate(rowIndex, 'sub_activity_area_name', name); onUpdate(rowIndex, 'sub_activity_area_id', id) }}
+        />
+      ) : (
+        <TextField label="Подсфера" field="sub_activity_area_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      )}
+
+      {/* Функциональная группа (ЕБК ФКР) */}
+      {dicts ? (
+        <DictSelect
+          label="Группа (ЕБК ФКР)"
+          value={row.functional_group_name ?? ''}
+          idValue={row.functional_group_id}
+          items={dicts.functional_groups}
+          onChange={(name, id) => {
+            onUpdate(rowIndex, 'functional_group_name', name)
+            onUpdate(rowIndex, 'functional_group_id', id)
+            // Reset subgroup when group changes
+            onUpdate(rowIndex, 'functional_subgroup_name', '')
+            onUpdate(rowIndex, 'functional_subgroup_id', undefined)
+          }}
+        />
+      ) : (
+        <TextField label="Группа (ЕБК ФКР)" field="functional_group_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      )}
+
+      {/* Подгруппа */}
+      {dicts ? (
+        <DictSelect
+          label="Подгруппа (ЕБК)"
+          value={row.functional_subgroup_name ?? ''}
+          idValue={row.functional_subgroup_id}
+          items={subGroups}
+          onChange={(name, id) => { onUpdate(rowIndex, 'functional_subgroup_name', name); onUpdate(rowIndex, 'functional_subgroup_id', id) }}
+        />
+      ) : (
+        <TextField label="Подгруппа (ЕБК)" field="functional_subgroup_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      )}
+
+      {/* Цифровая зрелость */}
+      {dicts ? (
+        <DictSelect
+          label="Цифровая зрелость"
+          value={row.digital_maturity ?? ''}
+          idValue={row.digital_maturity_id}
+          items={dicts.digital_maturities}
+          onChange={(name, id) => { onUpdate(rowIndex, 'digital_maturity', name); onUpdate(rowIndex, 'digital_maturity_id', id) }}
+        />
+      ) : (
+        <TextField label="Цифровая зрелость" field="digital_maturity" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      )}
+
+      {/* Гос. услуга */}
+      <div className="flex items-center gap-2 px-3 py-1 border-b border-purple-100 last:border-0">
+        <span className="shrink-0 font-medium" style={{ color: '#7c3aed', minWidth: 130 }}>Гос. услуга</span>
+        <select
+          value={row.is_government_service ? 'yes' : 'no'}
+          onChange={e => onUpdate(rowIndex, 'is_government_service', e.target.value === 'yes')}
+          className="flex-1 text-[11px] rounded border px-1.5 py-0.5 outline-none focus:border-purple-400 bg-white"
+          style={{ color: '#4c1d95', borderColor: '#e9d5ff' }}
+        >
+          <option value="no">Нет</option>
+          <option value="yes">Да</option>
+        </select>
+      </div>
+
+      {/* Законодательство RU */}
+      <TextField label="Законодательство (рус.)" field="law_ru" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+
+      {/* Законодательство KZ */}
+      <TextField label="Законодательство (каз.)" field="law_kz" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function PreviewModal({ result, guId, orgs, levelType, departments, deptId, savedData, excelRows, onClose, onSave, onExcelRowsChange }: Props) {
   const { filename, gu_name, gu_id } = result
 
@@ -88,7 +287,12 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
     const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next
   })
 
-  const updateExcelField = (rowIndex: number, field: keyof ExcelFunctionRow, value: string | boolean) =>
+  const [dicts, setDicts] = useState<Dicts | null>(null)
+  useEffect(() => {
+    getDicts().then(setDicts).catch(() => {})
+  }, [])
+
+  const updateExcelField = (rowIndex: number, field: keyof ExcelFunctionRow, value: string | boolean | number | undefined) =>
     setLocalExcelRows(prev => {
       const next = [...prev]
       next[rowIndex] = { ...next[rowIndex], [field]: value }
@@ -195,6 +399,22 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
                     ))}
                   </select>
                 )}
+                {levelType === 'otdel' && (result.parent_position_record_id || result.existing_position_record_id) && (
+                  <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                    {result.parent_position_record_id && (
+                      <span className="flex items-center gap-1 text-xs text-white/50">
+                        <span className="text-white/30">Управление:</span>
+                        <span className="font-mono text-white/70">#{result.parent_position_record_id}</span>
+                      </span>
+                    )}
+                    {result.existing_position_record_id && (
+                      <span className="flex items-center gap-1 text-xs text-amber-400/70">
+                        <span className="text-white/30">Отдел уже есть:</span>
+                        <span className="font-mono text-amber-400">#{result.existing_position_record_id}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-3 shrink-0">
@@ -300,44 +520,12 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
                         </div>
                         {/* Editable excel metadata panel */}
                         {excelRow && isExpanded && excelRowIdx >= 0 && (
-                          <div className="ml-12 mr-4 mb-2 rounded-lg overflow-hidden text-[11px]" style={{ background: '#faf5ff', border: '1px solid #e9d5ff' }}>
-                            {([
-                              ['Тип функции',       'function_type',            'text'],
-                              ['Целевая задача',     'target_task',              'text'],
-                              ['Описание',          'function_description',     'text'],
-                              ['Сфера',             'activity_area_name',       'text'],
-                              ['Подсфера',          'sub_activity_area_name',   'text'],
-                              ['Группа (ЕБК)',       'functional_group_name',    'text'],
-                              ['Подгруппа (ЕБК)',    'functional_subgroup_name', 'text'],
-                              ['Цифровая зрелость', 'digital_maturity',         'text'],
-                              ['Гос. услуга',       'is_government_service',    'bool'],
-                              ['Законодательство',  'law_ru',                   'text'],
-                            ] as [string, keyof ExcelFunctionRow, string][]).map(([label, field, type]) => (
-                              <div key={field} className="flex items-center gap-2 px-3 py-1 border-b border-purple-100 last:border-0">
-                                <span className="shrink-0 font-medium" style={{ color: '#7c3aed', minWidth: 120 }}>{label}</span>
-                                {type === 'bool' ? (
-                                  <select
-                                    value={excelRow[field] ? 'yes' : 'no'}
-                                    onChange={e => updateExcelField(excelRowIdx, field, e.target.value === 'yes')}
-                                    className="flex-1 text-[11px] rounded border px-1.5 py-0.5 outline-none focus:border-purple-400 bg-white"
-                                    style={{ color: '#4c1d95', borderColor: '#e9d5ff' }}
-                                  >
-                                    <option value="no">Нет</option>
-                                    <option value="yes">Да</option>
-                                  </select>
-                                ) : (
-                                  <input
-                                    type="text"
-                                    value={(excelRow[field] as string) ?? ''}
-                                    onChange={e => updateExcelField(excelRowIdx, field, e.target.value)}
-                                    className="flex-1 text-[11px] rounded border px-1.5 py-0.5 outline-none focus:border-purple-400 bg-white"
-                                    style={{ color: '#4c1d95', borderColor: '#e9d5ff' }}
-                                    placeholder="—"
-                                  />
-                                )}
-                              </div>
-                            ))}
-                          </div>
+                          <ExcelMetaPanel
+                            row={excelRow}
+                            rowIndex={excelRowIdx}
+                            dicts={dicts}
+                            onUpdate={updateExcelField}
+                          />
                         )}
                       </div>
                     )})}

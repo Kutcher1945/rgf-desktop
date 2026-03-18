@@ -176,6 +176,10 @@ export interface PreviewResult {
   detected_source: string | null
   suggested_dept_id?: string
   suggested_dept_name?: string
+  /** planning.gov.kz record ID of the parent Управление (type=4) — needed as positionDepartmentId for Отдел creation */
+  parent_position_record_id?: number
+  /** planning.gov.kz record ID of an already-existing Отдел (type=5) for this department */
+  existing_position_record_id?: number
   stats: { rights: number; responsibilities: number; tasks: number; functions: number }
   issues: string[]
   warnings: string[]
@@ -196,11 +200,19 @@ export interface ParsedImportResult {
   functions_failed?: number
 }
 
-export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string, departmentId?: number): Promise<ParsedImportResult> {
+export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string, departmentId?: number, existingPositionRecordId?: number, parentPositionRecordId?: number): Promise<ParsedImportResult> {
   const res = await tauriFetch(`${BASE}/api/rgf/import-parsed/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...(departmentId ? { department_id: departmentId } : {}), ...data }),
+    body: JSON.stringify({
+      gu_id: guId,
+      gu_name: guName ?? '',
+      filename: filename ?? '',
+      ...(departmentId ? { department_id: departmentId } : {}),
+      ...(existingPositionRecordId ? { existing_position_record_id: existingPositionRecordId } : {}),
+      ...(parentPositionRecordId ? { parent_position_record_id: parentPositionRecordId } : {}),
+      ...data,
+    }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
@@ -270,6 +282,7 @@ export interface ExcelFunctionRow {
   function_description: string
   structural_element: string
   law_ru: string
+  law_kz?: string
   task_name: string
   is_government_service: boolean
   result_description: string
@@ -278,6 +291,36 @@ export interface ExcelFunctionRow {
   sub_activity_area_name: string
   functional_group_name: string
   functional_subgroup_name: string
+  // ID fields — set when user picks from dropdown; used directly by the import
+  function_type_id?: number
+  activity_area_id?: number
+  sub_activity_area_id?: number
+  digital_maturity_id?: number
+  functional_group_id?: number
+  functional_subgroup_id?: number
+}
+
+export interface DictItem {
+  id: number
+  name: string
+  area_id?: number    // sub_activity_areas: parent area ID
+  group_id?: number   // functional_subgroups: parent group ID
+  rid?: number        // functional_groups: rid for subgroup lookup
+}
+
+export interface Dicts {
+  function_types: DictItem[]
+  activity_areas: DictItem[]
+  sub_activity_areas: DictItem[]
+  digital_maturities: DictItem[]
+  functional_groups: DictItem[]
+  functional_subgroups: DictItem[]
+}
+
+export async function getDicts(): Promise<Dicts> {
+  const res = await tauriFetch(`${BASE}/api/rgf/dicts/`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
 }
 
 export async function parseExcelFile(file: File): Promise<ExcelFunctionRow[]> {

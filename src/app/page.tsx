@@ -385,8 +385,11 @@ export default function ImportPage() {
           allResults.push({ filename: f.name, status: 'error', error: 'Организация не определена' })
         } else {
           try {
-            const guName = previewCache.get(f.name)?.gu_name ?? ''
-            const r = await importParsed(effectiveGuId, data, f.name, guName, deptId)
+            const cached = previewCache.get(f.name)
+            const guName = cached?.gu_name ?? ''
+            const existingPid = cached?.existing_position_record_id
+            const parentPid = cached?.parent_position_record_id
+            const r = await importParsed(effectiveGuId, data, f.name, guName, deptId, existingPid, parentPid)
             allResults.push({ filename: f.name, ...r })
           } catch (err: any) {
             allResults.push({ filename: f.name, status: 'error', error: err.message })
@@ -398,7 +401,8 @@ export default function ImportPage() {
       for (const f of rawFiles) {
         current++
         setImportProgress({ current, total, filename: f.name })
-        const effectiveDeptId = previewCache.get(f.name)?.suggested_dept_id
+        const cached = previewCache.get(f.name)
+        const effectiveDeptId = cached?.suggested_dept_id
           || (levelType === 'otdel' ? selectedDeptId : '')
         const deptId = effectiveDeptId ? Number(effectiveDeptId) : undefined
         // Upload pending xlsx if attached and dept is known
@@ -406,11 +410,26 @@ export default function ImportPage() {
         if (pendingXlsx && deptId) {
           try { await uploadDepartmentExcel(deptId, pendingXlsx) } catch {}
         }
-        try {
-          const res = await importDocuments([f], selectedOrgId || undefined, deptId)
-          allResults.push(...res.results)
-        } catch (err: any) {
-          allResults.push({ filename: f.name, status: 'error', error: err.message })
+        // If preview cache exists, use importParsed so parent_position_record_id is passed correctly.
+        // Without this, importDocuments ignores the preview cache and positionDepartmentId defaults to 762 → stored as 0.
+        if (cached?.data && (cached.gu_id || selectedOrgId)) {
+          const effectiveGuId = selectedOrgId || cached.gu_id || ''
+          const guName = cached.gu_name ?? ''
+          const parentPid = cached.parent_position_record_id
+          const existingPid = cached.existing_position_record_id
+          try {
+            const r = await importParsed(effectiveGuId, cached.data, f.name, guName, deptId, existingPid, parentPid)
+            allResults.push({ filename: f.name, ...r })
+          } catch (err: any) {
+            allResults.push({ filename: f.name, status: 'error', error: err.message })
+          }
+        } else {
+          try {
+            const res = await importDocuments([f], selectedOrgId || undefined, deptId)
+            allResults.push(...res.results)
+          } catch (err: any) {
+            allResults.push({ filename: f.name, status: 'error', error: err.message })
+          }
         }
         setResults([...allResults])
       }
