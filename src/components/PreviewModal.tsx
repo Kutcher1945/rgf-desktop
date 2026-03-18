@@ -78,19 +78,64 @@ function matchExcelRow(fnText: string, rows: ExcelFunctionRow[]): ExcelFunctionR
 
 type UpdateFn = (rowIndex: number, field: keyof ExcelFunctionRow, value: string | boolean | number | undefined) => void
 
-function DictSelect({ label, value, idValue, items, onChange, placeholder = '— не выбрано —' }: {
+const CELL_INPUT = "w-full text-[11px] rounded border px-2 py-1 outline-none focus:border-purple-400 bg-white"
+const CELL_STYLE = { color: '#1e1b4b', borderColor: '#e9d5ff' }
+const LABEL_STYLE = "block text-[10px] font-semibold uppercase tracking-wide mb-1"
+
+function CellText({ label, field, row, rowIndex, onUpdate }: {
   label: string
-  value: string
+  field: keyof ExcelFunctionRow
+  row: ExcelFunctionRow
+  rowIndex: number
+  onUpdate: UpdateFn
+}) {
+  return (
+    <div>
+      <span className={LABEL_STYLE} style={{ color: '#7c3aed' }}>{label} *</span>
+      <input
+        type="text"
+        value={(row[field] as string) ?? ''}
+        onChange={e => onUpdate(rowIndex, field, e.target.value)}
+        className={CELL_INPUT}
+        style={CELL_STYLE}
+        placeholder="—"
+      />
+    </div>
+  )
+}
+
+function CellTextArea({ label, field, row, rowIndex, onUpdate }: {
+  label: string
+  field: keyof ExcelFunctionRow
+  row: ExcelFunctionRow
+  rowIndex: number
+  onUpdate: UpdateFn
+}) {
+  return (
+    <div>
+      <span className={LABEL_STYLE} style={{ color: '#7c3aed' }}>{label} *</span>
+      <textarea
+        rows={2}
+        value={(row[field] as string) ?? ''}
+        onChange={e => onUpdate(rowIndex, field, e.target.value)}
+        className={CELL_INPUT + ' resize-none'}
+        style={CELL_STYLE}
+        placeholder="—"
+      />
+    </div>
+  )
+}
+
+function CellSelect({ label, idValue, items, onChange, placeholder = '— не выбрано —' }: {
+  label: string
   idValue?: number
   items: DictItem[]
   onChange: (name: string, id: number | undefined) => void
   placeholder?: string
 }) {
-  const cls = "flex-1 text-[11px] rounded border px-1.5 py-0.5 outline-none focus:border-purple-400 bg-white"
-  const style = { color: '#4c1d95', borderColor: '#e9d5ff' }
   return (
-    <div className="flex items-center gap-2 px-3 py-1 border-b border-purple-100 last:border-0">
-      <span className="shrink-0 font-medium" style={{ color: '#7c3aed', minWidth: 130 }}>{label}</span>
+    <div>
+      <span className={LABEL_STYLE} style={{ color: '#7c3aed' }}>{label} *</span>
       <select
         value={idValue ?? ''}
         onChange={e => {
@@ -98,8 +143,8 @@ function DictSelect({ label, value, idValue, items, onChange, placeholder = '—
           const item = items.find(x => x.id === id)
           onChange(item?.name ?? '', id)
         }}
-        className={cls}
-        style={style}
+        className={CELL_INPUT}
+        style={CELL_STYLE}
       >
         <option value="">{placeholder}</option>
         {items.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
@@ -108,7 +153,7 @@ function DictSelect({ label, value, idValue, items, onChange, placeholder = '—
   )
 }
 
-function TextField({ label, field, row, rowIndex, onUpdate }: {
+function CellBool({ label, field, row, rowIndex, onUpdate }: {
   label: string
   field: keyof ExcelFunctionRow
   row: ExcelFunctionRow
@@ -116,16 +161,17 @@ function TextField({ label, field, row, rowIndex, onUpdate }: {
   onUpdate: UpdateFn
 }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-1 border-b border-purple-100 last:border-0">
-      <span className="shrink-0 font-medium" style={{ color: '#7c3aed', minWidth: 130 }}>{label}</span>
-      <input
-        type="text"
-        value={(row[field] as string) ?? ''}
-        onChange={e => onUpdate(rowIndex, field, e.target.value)}
-        className="flex-1 text-[11px] rounded border px-1.5 py-0.5 outline-none focus:border-purple-400 bg-white"
-        style={{ color: '#4c1d95', borderColor: '#e9d5ff' }}
-        placeholder="—"
-      />
+    <div>
+      <span className={LABEL_STYLE} style={{ color: '#7c3aed' }}>{label} *</span>
+      <select
+        value={(row[field] as boolean) ? 'yes' : 'no'}
+        onChange={e => onUpdate(rowIndex, field, e.target.value === 'yes')}
+        className={CELL_INPUT}
+        style={CELL_STYLE}
+      >
+        <option value="no">Нет</option>
+        <option value="yes">Да</option>
+      </select>
     </div>
   )
 }
@@ -136,136 +182,96 @@ function ExcelMetaPanel({ row, rowIndex, dicts, onUpdate }: {
   dicts: Dicts | null
   onUpdate: UpdateFn
 }) {
-  const subAreas = dicts?.sub_activity_areas.filter(x => !row.activity_area_id || x.area_id === row.activity_area_id) ?? []
-  const subGroups = dicts?.functional_subgroups.filter(x => !row.functional_group_id || x.group_id === row.functional_group_id) ?? []
+  const subAreas  = dicts ? (row.activity_area_id   ? dicts.sub_activity_areas.filter(x => x.area_id   === row.activity_area_id)   : dicts.sub_activity_areas)  : []
+  const subGroups = dicts ? (row.functional_group_id ? dicts.functional_subgroups.filter(x => x.group_id === row.functional_group_id) : dicts.functional_subgroups) : []
+
+  const grid = "grid grid-cols-2 gap-3 px-4 py-3 border-b border-purple-100 last:border-0"
 
   return (
     <div className="ml-12 mr-4 mb-2 rounded-lg overflow-hidden text-[11px]" style={{ background: '#faf5ff', border: '1px solid #e9d5ff' }}>
 
-      {/* Название функции (KZ) */}
-      <TextField label="Функция (каз.)" field="function_name_kz" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-
-      {/* Тип функции */}
-      {dicts ? (
-        <DictSelect
-          label="Тип функции"
-          value={row.function_type ?? ''}
-          idValue={row.function_type_id}
-          items={dicts.function_types}
-          onChange={(name, id) => { onUpdate(rowIndex, 'function_type', name); onUpdate(rowIndex, 'function_type_id', id) }}
-        />
-      ) : (
-        <TextField label="Тип функции" field="function_type" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-      )}
-
-      {/* Целевая задача */}
-      <TextField label="Целевая задача" field="target_task" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-
-      {/* Описание */}
-      <TextField label="Описание" field="function_description" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-
-      {/* Структурный элемент */}
-      <TextField label="Структурный элемент" field="structural_element" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-
-      {/* Результат */}
-      <TextField label="Результат" field="result_description" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-
-      {/* Сфера деятельности */}
-      {dicts ? (
-        <DictSelect
-          label="Сфера деятельности"
-          value={row.activity_area_name ?? ''}
-          idValue={row.activity_area_id}
-          items={dicts.activity_areas}
-          onChange={(name, id) => {
-            onUpdate(rowIndex, 'activity_area_name', name)
-            onUpdate(rowIndex, 'activity_area_id', id)
-            // Reset sub-area when area changes
-            onUpdate(rowIndex, 'sub_activity_area_name', '')
-            onUpdate(rowIndex, 'sub_activity_area_id', undefined)
-          }}
-        />
-      ) : (
-        <TextField label="Сфера деятельности" field="activity_area_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-      )}
-
-      {/* Подсфера */}
-      {dicts ? (
-        <DictSelect
-          label="Подсфера"
-          value={row.sub_activity_area_name ?? ''}
-          idValue={row.sub_activity_area_id}
-          items={subAreas}
-          onChange={(name, id) => { onUpdate(rowIndex, 'sub_activity_area_name', name); onUpdate(rowIndex, 'sub_activity_area_id', id) }}
-        />
-      ) : (
-        <TextField label="Подсфера" field="sub_activity_area_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-      )}
-
-      {/* Функциональная группа (ЕБК ФКР) */}
-      {dicts ? (
-        <DictSelect
-          label="Группа (ЕБК ФКР)"
-          value={row.functional_group_name ?? ''}
-          idValue={row.functional_group_id}
-          items={dicts.functional_groups}
-          onChange={(name, id) => {
-            onUpdate(rowIndex, 'functional_group_name', name)
-            onUpdate(rowIndex, 'functional_group_id', id)
-            // Reset subgroup when group changes
-            onUpdate(rowIndex, 'functional_subgroup_name', '')
-            onUpdate(rowIndex, 'functional_subgroup_id', undefined)
-          }}
-        />
-      ) : (
-        <TextField label="Группа (ЕБК ФКР)" field="functional_group_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-      )}
-
-      {/* Подгруппа */}
-      {dicts ? (
-        <DictSelect
-          label="Подгруппа (ЕБК)"
-          value={row.functional_subgroup_name ?? ''}
-          idValue={row.functional_subgroup_id}
-          items={subGroups}
-          onChange={(name, id) => { onUpdate(rowIndex, 'functional_subgroup_name', name); onUpdate(rowIndex, 'functional_subgroup_id', id) }}
-        />
-      ) : (
-        <TextField label="Подгруппа (ЕБК)" field="functional_subgroup_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-      )}
-
-      {/* Цифровая зрелость */}
-      {dicts ? (
-        <DictSelect
-          label="Цифровая зрелость"
-          value={row.digital_maturity ?? ''}
-          idValue={row.digital_maturity_id}
-          items={dicts.digital_maturities}
-          onChange={(name, id) => { onUpdate(rowIndex, 'digital_maturity', name); onUpdate(rowIndex, 'digital_maturity_id', id) }}
-        />
-      ) : (
-        <TextField label="Цифровая зрелость" field="digital_maturity" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
-      )}
-
-      {/* Гос. услуга */}
-      <div className="flex items-center gap-2 px-3 py-1 border-b border-purple-100 last:border-0">
-        <span className="shrink-0 font-medium" style={{ color: '#7c3aed', minWidth: 130 }}>Гос. услуга</span>
-        <select
-          value={row.is_government_service ? 'yes' : 'no'}
-          onChange={e => onUpdate(rowIndex, 'is_government_service', e.target.value === 'yes')}
-          className="flex-1 text-[11px] rounded border px-1.5 py-0.5 outline-none focus:border-purple-400 bg-white"
-          style={{ color: '#4c1d95', borderColor: '#e9d5ff' }}
-        >
-          <option value="no">Нет</option>
-          <option value="yes">Да</option>
-        </select>
+      {/* Row 1: Структурный элемент | Наименование законодательства РК */}
+      <div className={grid}>
+        <CellText label="Структурный элемент" field="structural_element" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        <CellText label="Наименование законодательства РК" field="law_ru" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
       </div>
 
-      {/* Законодательство RU */}
-      <TextField label="Законодательство (рус.)" field="law_ru" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      {/* Row 2: Наименование функции на русском | Наименование функции на казахском */}
+      <div className={grid}>
+        <CellTextArea label="Наименование функции на русском" field="function_name_ru" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        <CellTextArea label="Наименование функции на казахском" field="function_name_kz" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      </div>
 
-      {/* Законодательство KZ */}
-      <TextField label="Законодательство (каз.)" field="law_kz" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      {/* Row 3: Тип функции | Описание функции */}
+      <div className={grid}>
+        {dicts ? (
+          <CellSelect label="Тип функции" idValue={row.function_type_id} items={dicts.function_types}
+            onChange={(name, id) => { onUpdate(rowIndex, 'function_type', name); onUpdate(rowIndex, 'function_type_id', id) }} />
+        ) : (
+          <CellText label="Тип функции" field="function_type" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        )}
+        <CellTextArea label="Описание функции" field="function_description" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      </div>
+
+      {/* Row 4: Реализуется через конкурентную среду | Является госуслугой */}
+      <div className={grid}>
+        <CellBool label="Реализуется через конкурентную среду" field="is_competitive_env" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        <CellBool label="Является госуслугой" field="is_government_service" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      </div>
+
+      {/* Row 5: Сфера деятельности | Подсфера деятельности */}
+      <div className={grid}>
+        {dicts ? (
+          <CellSelect label="Сфера деятельности" idValue={row.activity_area_id} items={dicts.activity_areas}
+            onChange={(name, id) => {
+              onUpdate(rowIndex, 'activity_area_name', name); onUpdate(rowIndex, 'activity_area_id', id)
+              onUpdate(rowIndex, 'sub_activity_area_name', ''); onUpdate(rowIndex, 'sub_activity_area_id', undefined)
+            }} />
+        ) : (
+          <CellText label="Сфера деятельности" field="activity_area_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        )}
+        {dicts ? (
+          <CellSelect label="Подсфера деятельности" idValue={row.sub_activity_area_id} items={subAreas}
+            onChange={(name, id) => { onUpdate(rowIndex, 'sub_activity_area_name', name); onUpdate(rowIndex, 'sub_activity_area_id', id) }} />
+        ) : (
+          <CellText label="Подсфера деятельности" field="sub_activity_area_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        )}
+      </div>
+
+      {/* Row 6: Функциональная группа (ЕБК) | Функциональная подгруппа (ЕБК) */}
+      <div className={grid}>
+        {dicts ? (
+          <CellSelect label="Функциональная группа (ЕБК)" idValue={row.functional_group_id} items={dicts.functional_groups}
+            onChange={(name, id) => {
+              onUpdate(rowIndex, 'functional_group_name', name); onUpdate(rowIndex, 'functional_group_id', id)
+              onUpdate(rowIndex, 'functional_subgroup_name', ''); onUpdate(rowIndex, 'functional_subgroup_id', undefined)
+            }} />
+        ) : (
+          <CellText label="Функциональная группа (ЕБК)" field="functional_group_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        )}
+        {dicts ? (
+          <CellSelect label="Функциональная подгруппа (ЕБК)" idValue={row.functional_subgroup_id} items={subGroups}
+            onChange={(name, id) => { onUpdate(rowIndex, 'functional_subgroup_name', name); onUpdate(rowIndex, 'functional_subgroup_id', id) }} />
+        ) : (
+          <CellText label="Функциональная подгруппа (ЕБК)" field="functional_subgroup_name" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        )}
+      </div>
+
+      {/* Row 7: Целевая задача | Цифровая зрелость */}
+      <div className={grid}>
+        <CellText label="Целевая задача" field="target_task" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        {dicts ? (
+          <CellSelect label="Цифровая зрелость" idValue={row.digital_maturity_id} items={dicts.digital_maturities}
+            onChange={(name, id) => { onUpdate(rowIndex, 'digital_maturity', name); onUpdate(rowIndex, 'digital_maturity_id', id) }} />
+        ) : (
+          <CellText label="Цифровая зрелость" field="digital_maturity" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        )}
+      </div>
+
+      {/* Row 8: Описание результата (full width) */}
+      <div className="px-4 py-3">
+        <CellTextArea label="Описание результата" field="result_description" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      </div>
 
     </div>
   )
@@ -289,7 +295,74 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
 
   const [dicts, setDicts] = useState<Dicts | null>(null)
   useEffect(() => {
-    getDicts().then(setDicts).catch(() => {})
+    getDicts().then(d => {
+      setDicts(d)
+      // Auto-populate ID fields from text names for all rows that don't have IDs yet
+      setLocalExcelRows(prev => prev.map(row => {
+        const updated = { ...row }
+
+        // Match a name against a list: exact → full contains → word overlap
+        const fuzzyMatch = (items: DictItem[], name: string): DictItem | undefined => {
+          if (!name) return undefined
+          const n = name.toLowerCase().trim()
+          // 1. exact
+          let m = items.find(x => x.name.toLowerCase().trim() === n)
+          if (m) return m
+          // 2. one contains the other (full string, no slicing)
+          m = items.find(x => {
+            const xn = x.name.toLowerCase().trim()
+            return xn.includes(n) || n.includes(xn)
+          })
+          if (m) return m
+          // 3. shared word overlap (words > 3 chars)
+          const words = n.split(/\s+/).filter(w => w.length > 3)
+          if (!words.length) return undefined
+          let best: DictItem | undefined
+          let bestScore = 0
+          for (const x of items) {
+            const xn = x.name.toLowerCase()
+            const score = words.filter(w => xn.includes(w)).length
+            if (score > bestScore) { bestScore = score; best = x }
+          }
+          return bestScore >= Math.max(1, Math.floor(words.length * 0.5)) ? best : undefined
+        }
+
+        if (!updated.function_type_id && updated.function_type) {
+          const m = fuzzyMatch(d.function_types, updated.function_type)
+          if (m) updated.function_type_id = m.id
+        }
+        if (!updated.digital_maturity_id && updated.digital_maturity) {
+          const m = fuzzyMatch(d.digital_maturities, updated.digital_maturity)
+          if (m) updated.digital_maturity_id = m.id
+        }
+        if (!updated.activity_area_id && updated.activity_area_name) {
+          const m = fuzzyMatch(d.activity_areas, updated.activity_area_name)
+          if (m) updated.activity_area_id = m.id
+        }
+        if (!updated.sub_activity_area_id && updated.sub_activity_area_name) {
+          // Try filtered by area first, fall back to all
+          const scoped = updated.activity_area_id
+            ? d.sub_activity_areas.filter(x => x.area_id === updated.activity_area_id)
+            : d.sub_activity_areas
+          const m = fuzzyMatch(scoped.length ? scoped : d.sub_activity_areas, updated.sub_activity_area_name)
+          if (m) updated.sub_activity_area_id = m.id
+        }
+        if (!updated.functional_group_id && updated.functional_group_name) {
+          const m = fuzzyMatch(d.functional_groups, updated.functional_group_name)
+          if (m) updated.functional_group_id = m.id
+        }
+        if (!updated.functional_subgroup_id && updated.functional_subgroup_name) {
+          // Try filtered by group first, fall back to all
+          const scoped = updated.functional_group_id
+            ? d.functional_subgroups.filter(x => x.group_id === updated.functional_group_id)
+            : d.functional_subgroups
+          const m = fuzzyMatch(scoped.length ? scoped : d.functional_subgroups, updated.functional_subgroup_name)
+          if (m) updated.functional_subgroup_id = m.id
+        }
+
+        return updated
+      }))
+    }).catch(() => {})
   }, [])
 
   const updateExcelField = (rowIndex: number, field: keyof ExcelFunctionRow, value: string | boolean | number | undefined) =>

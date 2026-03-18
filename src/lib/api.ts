@@ -285,6 +285,7 @@ export interface ExcelFunctionRow {
   law_kz?: string
   task_name: string
   is_government_service: boolean
+  is_competitive_env?: boolean
   result_description: string
   digital_maturity: string
   activity_area_name: string
