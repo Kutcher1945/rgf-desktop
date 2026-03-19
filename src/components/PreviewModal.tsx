@@ -475,6 +475,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
       authorities_responsibilities: [...src.authorities_responsibilities],
       functions:                    [...src.functions],
       additions:                    src.additions,
+      staff_numbers:                src.staff_numbers ?? 1,
     }
   })
 
@@ -734,6 +735,23 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
                   onChange={v => setEditData(prev => ({ ...prev, additions: v }))}
                   placeholder="Нет дополнений"
                   className="w-full text-sm text-gov-navy/80 leading-relaxed rounded-lg border border-transparent hover:border-gov-grey-light focus:border-gov-blue focus:ring-1 focus:ring-gov-blue/10 outline-none px-2 py-1.5 transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Staff numbers */}
+            <div className="rounded-xl border border-gov-grey-light overflow-hidden">
+              <div className="px-4 py-2.5 bg-[#f8f9fc] border-b border-gov-grey-light">
+                <span className="text-[11px] font-semibold text-gov-navy/50 uppercase tracking-wider">Штатная численность</span>
+              </div>
+              <div className="bg-white p-3 flex items-center gap-3">
+                <label className="text-xs text-gov-navy/60 shrink-0">Штатная численность *</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={editData.staff_numbers ?? 1}
+                  onChange={e => setEditData(prev => ({ ...prev, staff_numbers: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  className="w-24 text-sm text-gov-navy/80 rounded-lg border border-gov-grey-light hover:border-gov-blue/40 focus:border-gov-blue focus:ring-2 focus:ring-gov-blue/10 outline-none px-3 py-1.5 transition-all"
                 />
               </div>
             </div>

@@ -169,6 +169,7 @@ export interface PreviewData {
   authorities_responsibilities: string[]
   functions: string[]
   additions: string
+  staff_numbers?: number
 }
 
 export interface PreviewResult {
