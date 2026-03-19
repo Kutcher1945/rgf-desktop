@@ -44,6 +44,27 @@ function AutoResizeTextarea({ value, onChange, className, placeholder }: {
   )
 }
 
+function createDefaultExcelRow(fnText: string): ExcelFunctionRow {
+  return {
+    function_name_ru: fnText,
+    function_name_kz: '',
+    function_type: '',
+    target_task: '',
+    function_description: '',
+    structural_element: '',
+    law_ru: '',
+    task_name: '',
+    is_government_service: false,
+    is_competitive_env: false,
+    result_description: '',
+    digital_maturity: '',
+    activity_area_name: '',
+    sub_activity_area_name: '',
+    functional_group_name: '',
+    functional_subgroup_name: '',
+  }
+}
+
 const SECTION_CONFIG = [
   { key: 'tasks' as const,                        label: 'Задачи',                  count_key: 'tasks',            accent: '#3772ff', bg: '#ebf1ff', text: '#2956bf' },
   { key: 'authorities_rights' as const,           label: 'Полномочия (права)',       count_key: 'rights',           accent: '#059669', bg: '#ecfdf5', text: '#065f46' },
@@ -287,11 +308,20 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
   const [localDepts, setLocalDepts] = useState<Department[]>(departments ?? [])
   // Editable local copy of excel rows
   const [localExcelRows, setLocalExcelRows] = useState<ExcelFunctionRow[]>(() => excelRows ? [...excelRows] : [])
+  // Whether excel was originally provided (vs user-entered metadata)
+  const noExcelLoaded = !excelRows || excelRows.length === 0
+  // Per-function metadata when no Excel file is loaded (keyed by function index)
+  const [fnExcelMeta, setFnExcelMeta] = useState<Record<number, ExcelFunctionRow>>({})
   // Which function indices are expanded to show excel metadata
   const [expandedFns, setExpandedFns] = useState<Set<number>>(new Set())
-  const toggleFn = (i: number) => setExpandedFns(prev => {
-    const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next
-  })
+  const toggleFn = (i: number, fnText?: string) => {
+    if (noExcelLoaded && !fnExcelMeta[i]) {
+      setFnExcelMeta(prev => ({ ...prev, [i]: createDefaultExcelRow(fnText ?? '') }))
+    }
+    setExpandedFns(prev => {
+      const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next
+    })
+  }
 
   const [dicts, setDicts] = useState<Dicts | null>(null)
   useEffect(() => {
@@ -372,6 +402,12 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
       return next
     })
 
+  const updateFnMetaField = (rowIndex: number, field: keyof ExcelFunctionRow, value: string | boolean | number | undefined) =>
+    setFnExcelMeta(prev => ({
+      ...prev,
+      [rowIndex]: { ...prev[rowIndex], [field]: value },
+    }))
+
   useEffect(() => {
     if (levelType !== 'otdel' || !selectedGuId) { setLocalDepts([]); return }
     getDepartments(selectedGuId).then(setLocalDepts).catch(() => setLocalDepts([]))
@@ -417,7 +453,17 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
 
   const handleSave = () => {
     onSave(editData, selectedGuId, levelType === 'otdel' ? selectedDeptId : undefined)
-    if (onExcelRowsChange && localExcelRows.length > 0) onExcelRowsChange(localExcelRows)
+    if (onExcelRowsChange) {
+      if (localExcelRows.length > 0) {
+        onExcelRowsChange(localExcelRows)
+      } else if (Object.keys(fnExcelMeta).length > 0) {
+        // Emit per-function metadata in function order, skipping unedited slots
+        const rows = editData.functions
+          .map((_, i) => fnExcelMeta[i])
+          .filter((r): r is ExcelFunctionRow => Boolean(r))
+        if (rows.length > 0) onExcelRowsChange(rows)
+      }
+    }
     onClose()
   }
 
@@ -556,6 +602,10 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
                       const excelRowMatch = key === 'functions' && localExcelRows.length > 0 ? matchExcelRow(item, localExcelRows) : undefined
                       const excelRowIdx = excelRowMatch ? localExcelRows.indexOf(excelRowMatch) : -1
                       const excelRow = excelRowIdx >= 0 ? localExcelRows[excelRowIdx] : undefined
+                      // When no Excel file loaded, use per-function metadata
+                      const metaRow = key === 'functions' && noExcelLoaded ? fnExcelMeta[i] : undefined
+                      const showExpandToggle = key === 'functions' && (excelRow !== undefined || noExcelLoaded)
+                      const panelRow = excelRow ?? metaRow
                       const isExpanded = expandedFns.has(i)
                       return (
                       <div key={i} className="group">
@@ -569,11 +619,11 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
                             onChange={v => updateItem(key, i, v)}
                             className="flex-1 text-sm text-gov-navy/80 leading-relaxed rounded-md border border-transparent hover:border-gov-grey-light focus:border-gov-blue focus:ring-1 focus:ring-gov-blue/10 outline-none px-2 py-1.5 bg-transparent focus:bg-white transition-all"
                           />
-                          {/* Excel expand toggle — only shown for functions with matched row */}
-                          {excelRow && (
+                          {/* Expand toggle — shown for all functions (matched excel OR no excel loaded) */}
+                          {showExpandToggle && (
                             <button
-                              onClick={() => toggleFn(i)}
-                              title={isExpanded ? 'Свернуть детали' : 'Показать детали Excel'}
+                              onClick={() => toggleFn(i, item)}
+                              title={isExpanded ? 'Свернуть детали' : noExcelLoaded ? 'Заполнить поля функции' : 'Показать детали Excel'}
                               className="shrink-0 w-5 h-5 rounded flex items-center justify-center transition-all mt-2"
                               style={{ color: isExpanded ? '#7c3aed' : '#a78bfa', background: isExpanded ? '#ede9fe' : 'transparent' }}
                             >
@@ -591,13 +641,13 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
                             <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                           </button>
                         </div>
-                        {/* Editable excel metadata panel */}
-                        {excelRow && isExpanded && excelRowIdx >= 0 && (
+                        {/* Editable metadata panel — excel-matched or user-entered defaults */}
+                        {showExpandToggle && isExpanded && panelRow && (
                           <ExcelMetaPanel
-                            row={excelRow}
-                            rowIndex={excelRowIdx}
+                            row={panelRow}
+                            rowIndex={excelRow ? excelRowIdx : i}
                             dicts={dicts}
-                            onUpdate={updateExcelField}
+                            onUpdate={excelRow ? updateExcelField : updateFnMetaField}
                           />
                         )}
                       </div>
