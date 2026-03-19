@@ -1,11 +1,34 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import { getRecords, getAuditLog, deleteRecords, submitDraft } from '@/lib/api'
-import type { ImportedRecord, AuditLogEntry } from '@/lib/api'
+import type { ImportedRecord, AuditLogEntry, ExcelFunctionRow } from '@/lib/api'
 import { useUserRole } from '@/lib/user-context'
 
 type Tab = 'imports' | 'audit'
+
+const REQUIRED_META: { key: keyof ExcelFunctionRow; label: string }[] = [
+  { key: 'function_name_kz',        label: 'Название (каз.)'       },
+  { key: 'function_type',           label: 'Тип функции'           },
+  { key: 'task_name',               label: 'Задача'                },
+  { key: 'activity_area_name',      label: 'Сфера деятельности'    },
+  { key: 'sub_activity_area_name',  label: 'Подсфера'              },
+  { key: 'functional_group_name',   label: 'Функц. группа (ЕБК)'  },
+  { key: 'functional_subgroup_name',label: 'Функц. подгруппа (ЕБК)'},
+  { key: 'structural_element',      label: 'Структурный элемент'   },
+  { key: 'law_ru',                  label: 'Законодательство'      },
+  { key: 'digital_maturity',        label: 'Цифровая зрелость'     },
+]
+
+function getFunctionIssues(rows: ExcelFunctionRow[]) {
+  return rows.map((row, i) => ({
+    index: i,
+    name: row.function_name_ru,
+    missing: REQUIRED_META
+      .filter(f => !String((row as unknown as Record<string, unknown>)[f.key as string] ?? '').trim())
+      .map(f => f.label),
+  })).filter(r => r.missing.length > 0)
+}
 
 const ACTION_META: Record<string, { label: string; color: string; dot: string }> = {
   login:   { label: 'Вход',     color: 'text-indigo-400',  dot: 'bg-indigo-400' },
@@ -63,6 +86,10 @@ export default function RecordsPage() {
 
   const [records, setRecords]           = useState<ImportedRecord[]>([])
   const [selected, setSelected]         = useState<Set<number>>(new Set())
+  const [expandedWarnings, setExpandedWarnings] = useState<Set<number>>(new Set())
+  const toggleWarning = (id: number) => setExpandedWarnings(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
+  })
   const [loadingRecords, setLoadingRec] = useState(true)
   const [deleting, setDeleting]         = useState(false)
   const [recError, setRecError]         = useState<string | null>(null)
@@ -266,17 +293,28 @@ export default function RecordsPage() {
                 {records.map((r) => {
                   const isSelected = r.record_id != null && selected.has(r.record_id)
                   const sm = STATUS_META[r.status]
+                  // Compute per-function issues from stored excel_rows
+                  const issues = r.excel_rows ? getFunctionIssues(r.excel_rows) : []
+                  const missingRows = r.functions_count > (r.excel_rows?.length ?? 0)
+                  const needsMeta = r.functions_count > 0 && (!r.has_function_meta || missingRows || issues.length > 0)
+                  const isWarningOpen = expandedWarnings.has(r.id)
+                  const baseBg = isSelected
+                    ? 'rgba(55,114,255,0.08)'
+                    : needsMeta
+                      ? 'rgba(251,191,36,0.04)'
+                      : 'transparent'
                   return (
+                    <Fragment key={r.id}>
                     <tr
-                      key={r.id}
                       onClick={() => r.record_id != null && toggleOne(r.record_id)}
                       className={`transition-colors ${r.record_id != null ? 'cursor-pointer' : ''}`}
                       style={{
-                        borderBottom: '1px solid var(--divide)',
-                        background: isSelected ? 'rgba(55,114,255,0.08)' : 'transparent',
+                        borderBottom: isWarningOpen ? 'none' : '1px solid var(--divide)',
+                        background: baseBg,
+                        borderLeft: needsMeta ? '3px solid rgba(251,191,36,0.6)' : '3px solid transparent',
                       }}
-                      onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--surface-hover)' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = isSelected ? 'rgba(55,114,255,0.08)' : 'transparent' }}
+                      onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = needsMeta ? 'rgba(251,191,36,0.08)' : 'var(--surface-hover)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = baseBg }}
                     >
                       <td className="px-5 py-3.5" onClick={e => e.stopPropagation()}>
                         {r.record_id != null && (
@@ -316,6 +354,28 @@ export default function RecordsPage() {
                               {v} {label}
                             </span>
                           ))}
+                          {needsMeta && (
+                            <button
+                              onClick={e => { e.stopPropagation(); toggleWarning(r.id) }}
+                              title="Нажмите чтобы увидеть незаполненные поля"
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded transition-all"
+                              style={{
+                                background: isWarningOpen ? 'rgba(251,191,36,0.3)' : 'rgba(251,191,36,0.15)',
+                                color: '#f59e0b',
+                                border: '1px solid rgba(251,191,36,0.3)',
+                              }}
+                            >
+                              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                              </svg>
+                              {!r.has_function_meta
+                                ? 'нет метаданных'
+                                : `${issues.length} фун. с ошибками`}
+                              <svg className="w-2 h-2 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d={isWarningOpen ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
+                              </svg>
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3.5">
@@ -354,6 +414,41 @@ export default function RecordsPage() {
                         ) : null}
                       </td>
                     </tr>
+
+                    {/* ── Collapsible warning detail row ── */}
+                    {needsMeta && isWarningOpen && (
+                      <tr style={{ borderBottom: '1px solid var(--divide)', borderLeft: '3px solid rgba(251,191,36,0.6)' }}>
+                        <td colSpan={8} className="px-5 pb-3 pt-0" style={{ background: 'rgba(251,191,36,0.04)' }}>
+                          {!r.has_function_meta ? (
+                            <div className="flex items-center gap-2 py-2 text-xs" style={{ color: '#f59e0b' }}>
+                              <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                              </svg>
+                              Метаданные функций не заполнены. Откройте черновик и раскройте каждую функцию чтобы заполнить поля.
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5 pt-1">
+                              {issues.map(issue => (
+                                <div key={issue.index} className="rounded-lg px-3 py-2" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)' }}>
+                                  <p className="text-[11px] font-semibold truncate mb-1" style={{ color: '#fbbf24' }}>
+                                    {issue.index + 1}. {issue.name || '(без названия)'}
+                                  </p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {issue.missing.map(field => (
+                                      <span key={field} className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                                            style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171' }}>
+                                        {field}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   )
                 })}
               </tbody>

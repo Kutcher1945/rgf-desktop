@@ -99,9 +99,21 @@ function matchExcelRow(fnText: string, rows: ExcelFunctionRow[]): ExcelFunctionR
 
 type UpdateFn = (rowIndex: number, field: keyof ExcelFunctionRow, value: string | boolean | number | undefined) => void
 
-const CELL_INPUT = "w-full text-[11px] rounded border px-2 py-1 outline-none focus:border-purple-400 bg-white"
-const CELL_STYLE = { color: '#1e1b4b', borderColor: '#e9d5ff' }
-const LABEL_STYLE = "block text-[10px] font-semibold uppercase tracking-wide mb-1"
+const CELL_INPUT = "w-full text-[11px] rounded border px-2 py-1 outline-none transition-colors"
+const CELL_STYLE        = { color: '#1e1b4b', borderColor: '#e9d5ff', background: '#fff' }
+const CELL_EMPTY_STYLE  = { color: '#92400e', borderColor: '#fbbf24', background: 'rgba(251,191,36,0.06)' }
+const LABEL_STYLE       = "block text-[10px] font-semibold uppercase tracking-wide mb-1 flex items-center gap-1.5"
+const LABEL_COLOR       = '#7c3aed'
+const LABEL_EMPTY_COLOR = '#b45309'
+
+function EmptyDot() {
+  return (
+    <span title="Не заполнено" className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0 rounded"
+          style={{ background: 'rgba(251,191,36,0.2)', color: '#b45309', letterSpacing: 0 }}>
+      пусто
+    </span>
+  )
+}
 
 function CellText({ label, field, row, rowIndex, onUpdate }: {
   label: string
@@ -110,15 +122,19 @@ function CellText({ label, field, row, rowIndex, onUpdate }: {
   rowIndex: number
   onUpdate: UpdateFn
 }) {
+  const val = (row[field] as string) ?? ''
+  const empty = !val.trim()
   return (
     <div>
-      <span className={LABEL_STYLE} style={{ color: '#7c3aed' }}>{label} *</span>
+      <span className={LABEL_STYLE} style={{ color: empty ? LABEL_EMPTY_COLOR : LABEL_COLOR }}>
+        {label} *{empty && <EmptyDot />}
+      </span>
       <input
         type="text"
-        value={(row[field] as string) ?? ''}
+        value={val}
         onChange={e => onUpdate(rowIndex, field, e.target.value)}
-        className={CELL_INPUT}
-        style={CELL_STYLE}
+        className={CELL_INPUT + ' focus:border-purple-400'}
+        style={empty ? CELL_EMPTY_STYLE : CELL_STYLE}
         placeholder="—"
       />
     </div>
@@ -132,15 +148,19 @@ function CellTextArea({ label, field, row, rowIndex, onUpdate }: {
   rowIndex: number
   onUpdate: UpdateFn
 }) {
+  const val = (row[field] as string) ?? ''
+  const empty = !val.trim()
   return (
     <div>
-      <span className={LABEL_STYLE} style={{ color: '#7c3aed' }}>{label} *</span>
+      <span className={LABEL_STYLE} style={{ color: empty ? LABEL_EMPTY_COLOR : LABEL_COLOR }}>
+        {label} *{empty && <EmptyDot />}
+      </span>
       <textarea
         rows={2}
-        value={(row[field] as string) ?? ''}
+        value={val}
         onChange={e => onUpdate(rowIndex, field, e.target.value)}
-        className={CELL_INPUT + ' resize-none'}
-        style={CELL_STYLE}
+        className={CELL_INPUT + ' resize-none focus:border-purple-400'}
+        style={empty ? CELL_EMPTY_STYLE : CELL_STYLE}
         placeholder="—"
       />
     </div>
@@ -154,9 +174,12 @@ function CellSelect({ label, idValue, items, onChange, placeholder = '— не �
   onChange: (name: string, id: number | undefined) => void
   placeholder?: string
 }) {
+  const empty = idValue === undefined || idValue === null
   return (
     <div>
-      <span className={LABEL_STYLE} style={{ color: '#7c3aed' }}>{label} *</span>
+      <span className={LABEL_STYLE} style={{ color: empty ? LABEL_EMPTY_COLOR : LABEL_COLOR }}>
+        {label} *{empty && <EmptyDot />}
+      </span>
       <select
         value={idValue ?? ''}
         onChange={e => {
@@ -164,8 +187,8 @@ function CellSelect({ label, idValue, items, onChange, placeholder = '— не �
           const item = items.find(x => x.id === id)
           onChange(item?.name ?? '', id)
         }}
-        className={CELL_INPUT}
-        style={CELL_STYLE}
+        className={CELL_INPUT + ' focus:border-purple-400'}
+        style={empty ? CELL_EMPTY_STYLE : CELL_STYLE}
       >
         <option value="">{placeholder}</option>
         {items.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
@@ -197,19 +220,49 @@ function CellBool({ label, field, row, rowIndex, onUpdate }: {
   )
 }
 
-function ExcelMetaPanel({ row, rowIndex, dicts, onUpdate }: {
+function ExcelMetaPanel({ row, rowIndex, dicts, tasks, onUpdate }: {
   row: ExcelFunctionRow
   rowIndex: number
   dicts: Dicts | null
+  tasks: string[]
   onUpdate: UpdateFn
 }) {
-  const subAreas  = dicts ? (row.activity_area_id   ? dicts.sub_activity_areas.filter(x => x.area_id   === row.activity_area_id)   : dicts.sub_activity_areas)  : []
-  const subGroups = dicts ? (row.functional_group_id ? dicts.functional_subgroups.filter(x => x.group_id === row.functional_group_id) : dicts.functional_subgroups) : []
+  const subAreas = dicts ? (() => {
+    if (!row.activity_area_id) return dicts.sub_activity_areas
+    const filtered = dicts.sub_activity_areas.filter(x => x.area_id === row.activity_area_id)
+    return filtered.length ? filtered : dicts.sub_activity_areas
+  })() : []
+  const subGroups = dicts ? (() => {
+    if (!row.functional_group_id) return dicts.functional_subgroups
+    const filtered = dicts.functional_subgroups.filter(x => x.group_id === row.functional_group_id)
+    return filtered.length ? filtered : dicts.functional_subgroups
+  })() : []
 
   const grid = "grid grid-cols-2 gap-3 px-4 py-3 border-b border-purple-100 last:border-0"
+  const availableTasks = tasks.filter(t => t.trim())
 
   return (
     <div className="ml-12 mr-4 mb-2 rounded-lg overflow-hidden text-[11px]" style={{ background: '#faf5ff', border: '1px solid #e9d5ff' }}>
+
+      {/* Row 0: Наименование задачи (full width, from docx tasks) */}
+      {availableTasks.length > 0 && (
+        <div className="px-4 py-3 border-b border-purple-100">
+          <span className={LABEL_STYLE} style={{ color: '#7c3aed' }}>Наименование задачи *</span>
+          <select
+            value={row.task_name ?? ''}
+            onChange={e => onUpdate(rowIndex, 'task_name', e.target.value)}
+            className={CELL_INPUT}
+            style={CELL_STYLE}
+          >
+            <option value="">— выберите задачу —</option>
+            {availableTasks.map((t, idx) => (
+              <option key={idx} value={t}>
+                {t.length > 100 ? t.slice(0, 100) + '…' : t}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Row 1: Структурный элемент | Наименование законодательства РК */}
       <div className={grid}>
@@ -309,13 +362,12 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
   // Editable local copy of excel rows
   const [localExcelRows, setLocalExcelRows] = useState<ExcelFunctionRow[]>(() => excelRows ? [...excelRows] : [])
   // Whether excel was originally provided (vs user-entered metadata)
-  const noExcelLoaded = !excelRows || excelRows.length === 0
   // Per-function metadata when no Excel file is loaded (keyed by function index)
   const [fnExcelMeta, setFnExcelMeta] = useState<Record<number, ExcelFunctionRow>>({})
   // Which function indices are expanded to show excel metadata
   const [expandedFns, setExpandedFns] = useState<Set<number>>(new Set())
   const toggleFn = (i: number, fnText?: string) => {
-    if (noExcelLoaded && !fnExcelMeta[i]) {
+    if (!fnExcelMeta[i]) {
       setFnExcelMeta(prev => ({ ...prev, [i]: createDefaultExcelRow(fnText ?? '') }))
     }
     setExpandedFns(prev => {
@@ -454,15 +506,17 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
   const handleSave = () => {
     onSave(editData, selectedGuId, levelType === 'otdel' ? selectedDeptId : undefined)
     if (onExcelRowsChange) {
-      if (localExcelRows.length > 0) {
-        onExcelRowsChange(localExcelRows)
-      } else if (Object.keys(fnExcelMeta).length > 0) {
-        // Emit per-function metadata in function order, skipping unedited slots
-        const rows = editData.functions
-          .map((_, i) => fnExcelMeta[i])
-          .filter((r): r is ExcelFunctionRow => Boolean(r))
-        if (rows.length > 0) onExcelRowsChange(rows)
-      }
+      // Always emit a row for every function so completeness checks cover all of them:
+      // 1. user-edited meta (fnExcelMeta[i])  2. matched excel row  3. default empty row
+      const allRows = editData.functions.map((fnText, i) => {
+        if (fnExcelMeta[i]) return fnExcelMeta[i]
+        if (localExcelRows.length > 0) {
+          const matched = matchExcelRow(fnText, localExcelRows)
+          if (matched) return matched
+        }
+        return createDefaultExcelRow(fnText)
+      })
+      onExcelRowsChange(allRows)
     }
     onClose()
   }
@@ -603,8 +657,9 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
                       const excelRowIdx = excelRowMatch ? localExcelRows.indexOf(excelRowMatch) : -1
                       const excelRow = excelRowIdx >= 0 ? localExcelRows[excelRowIdx] : undefined
                       // When no Excel file loaded, use per-function metadata
-                      const metaRow = key === 'functions' && noExcelLoaded ? fnExcelMeta[i] : undefined
-                      const showExpandToggle = key === 'functions' && (excelRow !== undefined || noExcelLoaded)
+                      // Always available as fallback for functions with no matched excel row
+                      const metaRow = key === 'functions' ? fnExcelMeta[i] : undefined
+                      const showExpandToggle = key === 'functions'
                       const panelRow = excelRow ?? metaRow
                       const isExpanded = expandedFns.has(i)
                       return (
@@ -623,7 +678,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
                           {showExpandToggle && (
                             <button
                               onClick={() => toggleFn(i, item)}
-                              title={isExpanded ? 'Свернуть детали' : noExcelLoaded ? 'Заполнить поля функции' : 'Показать детали Excel'}
+                              title={isExpanded ? 'Свернуть детали' : excelRow ? 'Показать детали Excel' : 'Заполнить поля функции'}
                               className="shrink-0 w-5 h-5 rounded flex items-center justify-center transition-all mt-2"
                               style={{ color: isExpanded ? '#7c3aed' : '#a78bfa', background: isExpanded ? '#ede9fe' : 'transparent' }}
                             >
@@ -647,6 +702,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
                             row={panelRow}
                             rowIndex={excelRow ? excelRowIdx : i}
                             dicts={dicts}
+                            tasks={editData.tasks}
                             onUpdate={excelRow ? updateExcelField : updateFnMetaField}
                           />
                         )}

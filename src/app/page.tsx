@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, Fragment } from 'react'
 import {
   aiAnalyzeDocument, getDepartments, getOrganizations, importDocuments,
   importParsed, saveDraft, submitDraft, previewDocument, getRecords, getAuditLog,
   uploadDepartmentExcel, getDepartmentExcelTemplateUrl, parseExcelFile,
-  browseRecords, updateDraftStatus,
+  browseRecords, updateDraftStatus, updateDraftExcel, updateDraftData, getDicts,
 } from '@/lib/api'
-import type { Department, Org, ImportResult, PreviewResult, PreviewData, ImportedRecord, AuditLogEntry, ExcelFunctionRow, PositionDepartmentItem, DraftStatus } from '@/lib/api'
+import type { Department, Org, ImportResult, PreviewResult, PreviewData, ImportedRecord, AuditLogEntry, ExcelFunctionRow, PositionDepartmentItem, DraftStatus, Dicts, DictItem } from '@/lib/api'
 import PreviewModal from '@/components/PreviewModal'
 import { useUserRole } from '@/lib/user-context'
 
@@ -136,6 +136,21 @@ export default function ImportPage() {
   const [auditError, setAuditError] = useState<string | null>(null)
   const [historyPage, setHistoryPage] = useState(1)
   const [auditPage, setAuditPage] = useState(1)
+  // Which draft record is currently open in the PreviewModal (for saving back)
+  const [editingDraftId, setEditingDraftId] = useState<number | null>(null)
+  // Inline excel editor for drafts table
+  const [expandedDraftId, setExpandedDraftId] = useState<number | null>(null)
+  const [draftExcelEdits, setDraftExcelEdits] = useState<Map<number, ExcelFunctionRow[]>>(new Map())
+  const [inlineDicts, setInlineDicts] = useState<Dicts | null>(null)
+  const [savingExcel, setSavingExcel] = useState(false)
+  // Toast
+  const [toast, setToast] = useState<{ msg: string; type: 'warn' | 'err' } | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showToast = (msg: string, type: 'warn' | 'err' = 'warn') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    setToast({ msg, type })
+    toastTimer.current = setTimeout(() => setToast(null), 4000)
+  }
   // Registry sub-tab
   const [adminRegSubTab, setAdminRegSubTab] = useState<'drafts' | 'registry'>('drafts')
   const [submittingDraftId, setSubmittingDraftId] = useState<number | null>(null)
@@ -470,7 +485,7 @@ export default function ImportPage() {
           continue
         }
         try {
-          await saveDraft(guId, data, f.name, guName)
+          await saveDraft(guId, data, f.name, guName, excelRows.get(f.name))
           allResults.push({ filename: f.name, status: 'success' })
         } catch (err: any) {
           allResults.push({ filename: f.name, status: 'error', error: err.message })
@@ -498,6 +513,86 @@ export default function ImportPage() {
   const lastImport = recentRecords[0]?.created_at
   const pagedRecords = recentRecords.slice((historyPage - 1) * PAGE_SIZE, historyPage * PAGE_SIZE)
   const pagedAudit   = auditLog.slice((auditPage - 1) * PAGE_SIZE, auditPage * PAGE_SIZE)
+
+  // ── Inline excel editor helpers ───────────────────────────────────────────
+  const REQUIRED_META: { key: keyof ExcelFunctionRow; label: string; type: 'text' | 'textarea' | 'select' | 'bool' }[] = [
+    { key: 'function_name_kz',         label: 'Название (каз.)',        type: 'textarea' },
+    { key: 'function_type',            label: 'Тип функции',            type: 'select'   },
+    { key: 'task_name',                label: 'Задача',                 type: 'text'     },
+    { key: 'activity_area_name',       label: 'Сфера деятельности',     type: 'select'   },
+    { key: 'sub_activity_area_name',   label: 'Подсфера',               type: 'select'   },
+    { key: 'functional_group_name',    label: 'Функц. группа (ЕБК)',    type: 'select'   },
+    { key: 'functional_subgroup_name', label: 'Функц. подгруппа (ЕБК)', type: 'select'   },
+    { key: 'structural_element',       label: 'Структурный элемент',    type: 'text'     },
+    { key: 'law_ru',                   label: 'Законодательство',       type: 'text'     },
+    { key: 'digital_maturity',         label: 'Цифровая зрелость',      type: 'select'   },
+  ]
+  const isMissingField = (row: ExcelFunctionRow, key: keyof ExcelFunctionRow) => {
+    const v = row[key]
+    if (typeof v === 'boolean') return false
+    return !String(v ?? '').trim()
+  }
+  const getMissingKeys = (row: ExcelFunctionRow) =>
+    REQUIRED_META.filter(f => isMissingField(row, f.key))
+  const getIncompleteRows = (rows: ExcelFunctionRow[]) =>
+    rows.map((row, i) => ({ row, i, missing: getMissingKeys(row) })).filter(x => x.missing.length > 0)
+
+  const openDraftInlineEditor = async (draftId: number, rows: ExcelFunctionRow[]) => {
+    if (expandedDraftId === draftId) { setExpandedDraftId(null); return }
+    // Clone rows into edit state
+    setDraftExcelEdits(prev => new Map(prev).set(draftId, rows.map(r => ({ ...r }))))
+    setExpandedDraftId(draftId)
+    if (!inlineDicts) getDicts().then(setInlineDicts).catch(() => {})
+  }
+
+  const updateInlineField = (draftId: number, rowIdx: number, key: keyof ExcelFunctionRow, value: string | boolean | number | undefined) => {
+    setDraftExcelEdits(prev => {
+      const rows = [...(prev.get(draftId) ?? [])]
+      rows[rowIdx] = { ...rows[rowIdx], [key]: value }
+      return new Map(prev).set(draftId, rows)
+    })
+  }
+
+  const saveInlineExcel = async (draftId: number) => {
+    const rows = draftExcelEdits.get(draftId)
+    if (!rows) return
+    setSavingExcel(true)
+    try {
+      await updateDraftExcel(draftId, rows)
+      setRecentRecords(prev => prev.map(r => r.id === draftId
+        ? { ...r, excel_rows: rows, has_function_meta: rows.length > 0 }
+        : r))
+      setExpandedDraftId(null)
+    } catch {}
+    finally { setSavingExcel(false) }
+  }
+
+  const getDictItems = (key: keyof ExcelFunctionRow, currentRow: ExcelFunctionRow): DictItem[] => {
+    if (!inlineDicts) return []
+    if (key === 'function_type')            return inlineDicts.function_types
+    if (key === 'activity_area_name')       return inlineDicts.activity_areas
+    if (key === 'sub_activity_area_name')   return currentRow.activity_area_id
+      ? inlineDicts.sub_activity_areas.filter(x => x.area_id === currentRow.activity_area_id)
+      : inlineDicts.sub_activity_areas
+    if (key === 'functional_group_name')    return inlineDicts.functional_groups
+    if (key === 'functional_subgroup_name') return currentRow.functional_group_id
+      ? inlineDicts.functional_subgroups.filter(x => x.group_id === currentRow.functional_group_id)
+      : inlineDicts.functional_subgroups
+    if (key === 'digital_maturity')         return inlineDicts.digital_maturities
+    return []
+  }
+
+  const getIdKey = (key: keyof ExcelFunctionRow): keyof ExcelFunctionRow | null => {
+    const map: Partial<Record<keyof ExcelFunctionRow, keyof ExcelFunctionRow>> = {
+      function_type:            'function_type_id',
+      activity_area_name:       'activity_area_id',
+      sub_activity_area_name:   'sub_activity_area_id',
+      functional_group_name:    'functional_group_id',
+      functional_subgroup_name: 'functional_subgroup_id',
+      digital_maturity:         'digital_maturity_id',
+    }
+    return map[key] ?? null
+  }
 
   return (
     <div className="flex h-[calc(100vh-56px)] overflow-hidden">
@@ -1326,11 +1421,23 @@ export default function ImportPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {drafts.map((r, idx) => (
-                          <tr key={r.id} className="border-b transition-colors"
-                              style={{ background: idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)', borderColor: 'var(--divide)' }}
+                        {drafts.map((r, idx) => {
+                          const rows = draftExcelEdits.get(r.id) ?? r.excel_rows ?? []
+                          const incompleteRows = r.functions_count > 0 ? getIncompleteRows(r.excel_rows ?? []) : []
+                          const missingRows = r.functions_count > (r.excel_rows?.length ?? 0)
+                          const needsMeta = r.functions_count > 0 && (!r.has_function_meta || missingRows || incompleteRows.length > 0)
+                          const isOpen = expandedDraftId === r.id
+                          const baseBg = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)'
+                          return (
+                          <Fragment key={r.id}>
+                          <tr className="transition-colors"
+                              style={{
+                                background: baseBg,
+                                borderBottom: '1px solid var(--divide)',
+                                borderLeft: needsMeta ? '3px solid rgba(251,191,36,0.6)' : '3px solid transparent',
+                              }}
                               onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
-                              onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)')}>
+                              onMouseLeave={e => (e.currentTarget.style.background = baseBg)}>
                             <td className="px-4 py-2.5 max-w-[220px]">
                               <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-1)' }}>{r.filename}</p>
                               {r.status === 'pending'
@@ -1351,6 +1458,90 @@ export default function ImportPage() {
                                   <span key={label} className="text-[10px] font-semibold px-1 py-0.5 rounded"
                                         style={{ background: c, color: t }}>{v} {label}</span>
                                 ))}
+                                {needsMeta && (
+                                  <div className="relative">
+                                    <button
+                                      onClick={() => setExpandedDraftId(isOpen ? null : r.id)}
+                                      className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded transition-all"
+                                      style={{
+                                        background: isOpen ? 'rgba(251,191,36,0.3)' : 'rgba(251,191,36,0.15)',
+                                        color: '#f59e0b',
+                                        border: '1px solid rgba(251,191,36,0.3)',
+                                      }}
+                                    >
+                                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                                      </svg>
+                                      {!r.has_function_meta || missingRows ? 'нет метаданных' : `${incompleteRows.length} фун. с ошибками`}
+                                      <svg className="w-2 h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d={isOpen ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
+                                      </svg>
+                                    </button>
+
+                                    {/* Warning dropdown */}
+                                    {isOpen && (
+                                      <div
+                                        className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-lg overflow-hidden"
+                                        style={{
+                                          minWidth: 280,
+                                          background: 'var(--surface-1)',
+                                          border: '1px solid rgba(251,191,36,0.35)',
+                                          boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+                                        }}
+                                      >
+                                        <div className="px-3 py-2 flex items-center gap-2" style={{ background: 'rgba(251,191,36,0.12)', borderBottom: '1px solid rgba(251,191,36,0.2)' }}>
+                                          <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="#f59e0b" strokeWidth={2.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                                          </svg>
+                                          <span className="text-[11px] font-semibold" style={{ color: '#f59e0b' }}>
+                                            {!r.has_function_meta || missingRows ? 'Метаданные функций не заполнены' : 'Незаполненные поля'}
+                                          </span>
+                                        </div>
+
+                                        {!r.has_function_meta || missingRows ? (
+                                          <div className="px-3 py-2.5">
+                                            <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                                              Ни одна функция не имеет метаданных. Нажмите «Редактировать» и заполните поля для каждой функции.
+                                            </p>
+                                            <div className="mt-2 flex flex-wrap gap-1">
+                                              {REQUIRED_META.map(f => (
+                                                <span key={f.key as string} className="text-[10px] px-1.5 py-0.5 rounded"
+                                                      style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171' }}>
+                                                  {f.label}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div className="max-h-64 overflow-y-auto" style={{ borderTop: '1px solid var(--divide)' }}>
+                                            {incompleteRows.map(({ row: fnRow, i: fnIdx, missing }) => (
+                                              <div key={fnIdx} className="px-3 py-2">
+                                                <p className="text-[10px] font-semibold mb-1.5 truncate" style={{ color: 'var(--text-2)' }}>
+                                                  <span className="mr-1.5 px-1 py-0.5 rounded text-[9px]" style={{ background: 'rgba(167,139,250,0.2)', color: '#a78bfa' }}>{fnIdx + 1}</span>
+                                                  {fnRow.function_name_ru || '(без названия)'}
+                                                </p>
+                                                <div className="flex flex-wrap gap-1">
+                                                  {missing.map(f => (
+                                                    <span key={f.key as string} className="text-[10px] px-1.5 py-0.5 rounded"
+                                                          style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171' }}>
+                                                      {f.label}
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+
+                                        <div className="px-3 py-2" style={{ borderTop: '1px solid var(--divide)' }}>
+                                          <p className="text-[10px]" style={{ color: 'var(--text-4)' }}>
+                                            Нажмите «Редактировать» чтобы заполнить поля
+                                          </p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </td>
                             <td className="px-4 py-2.5">
@@ -1362,40 +1553,58 @@ export default function ImportPage() {
                                   { value: 'approved',    label: 'Согласован',   bg: 'rgba(16,185,129,0.12)', color: '#34d399'             },
                                 ]
                                 const cur = DRAFT_STATUSES.find(s => s.value === r.draft_status) ?? DRAFT_STATUSES[0]
+                                const BLOCKED = new Set<DraftStatus>(['review', 'approved'])
                                 return (
-                                  <div className="relative inline-flex items-center">
-                                    <select
-                                      value={r.draft_status ?? 'in_progress'}
-                                      onChange={async e => {
-                                        const next = e.target.value as DraftStatus
-                                        try {
-                                          await updateDraftStatus(r.id, next)
-                                          setRecentRecords(prev => prev.map(x => x.id === r.id ? { ...x, draft_status: next } : x))
-                                        } catch {}
-                                      }}
-                                      className="text-[10px] font-semibold pl-2.5 pr-6 py-1 rounded-full cursor-pointer outline-none border"
-                                      style={{
-                                        background: cur.bg,
-                                        color: cur.color,
-                                        borderColor: cur.color + '55',
-                                        appearance: 'none',
-                                        WebkitAppearance: 'none',
-                                      }}
-                                    >
-                                      {DRAFT_STATUSES.map(s => (
-                                        <option key={s.value} value={s.value}
-                                                style={{ background: 'var(--surface-1)', color: 'var(--text-1)' }}>
-                                          {s.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <svg
-                                      className="pointer-events-none absolute right-1.5 w-3 h-3"
-                                      style={{ color: cur.color }}
-                                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-                                    >
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                                    </svg>
+                                  <div>
+                                    <div className="relative inline-flex items-center">
+                                      <select
+                                        value={r.draft_status ?? 'in_progress'}
+                                        onChange={async e => {
+                                          const next = e.target.value as DraftStatus
+                                          if (needsMeta && BLOCKED.has(next)) {
+                                            e.currentTarget.value = r.draft_status ?? 'in_progress'
+                                            showToast(
+                                              next === 'approved'
+                                                ? 'Нельзя согласовать: сначала заполните метаданные всех функций'
+                                                : 'Нельзя отправить на проверку: сначала заполните метаданные всех функций',
+                                              'warn'
+                                            )
+                                            return
+                                          }
+                                          try {
+                                            await updateDraftStatus(r.id, next)
+                                            setRecentRecords(prev => prev.map(x => x.id === r.id ? { ...x, draft_status: next } : x))
+                                          } catch {}
+                                        }}
+                                        className="text-[10px] font-semibold pl-2.5 pr-6 py-1 rounded-full cursor-pointer outline-none border"
+                                        style={{
+                                          background: cur.bg,
+                                          color: cur.color,
+                                          borderColor: cur.color + '55',
+                                          appearance: 'none',
+                                          WebkitAppearance: 'none',
+                                        }}
+                                      >
+                                        {DRAFT_STATUSES.map(s => (
+                                          <option key={s.value} value={s.value}
+                                                  style={{ background: 'var(--surface-1)', color: 'var(--text-1)' }}>
+                                            {s.label}{needsMeta && BLOCKED.has(s.value) ? ' 🔒' : ''}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <svg
+                                        className="pointer-events-none absolute right-1.5 w-3 h-3"
+                                        style={{ color: cur.color }}
+                                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                                      >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                      </svg>
+                                    </div>
+                                    {needsMeta && (
+                                      <p className="mt-1 text-[9px] leading-tight" style={{ color: '#f59e0b', maxWidth: 160 }}>
+                                        🔒 «На проверке» и «Согласован» недоступны — заполните метаданные функций
+                                      </p>
+                                    )}
                                   </div>
                                 )
                               })()}
@@ -1429,6 +1638,11 @@ export default function ImportPage() {
                                       additions: '',
                                     },
                                   }
+                                  // Seed excel rows from the saved draft so ExcelMetaPanel shows existing data
+                                  if (r.excel_rows && r.excel_rows.length > 0) {
+                                    setExcelRows(prev => new Map(prev).set(r.filename, r.excel_rows!))
+                                  }
+                                  setEditingDraftId(r.id)
                                   setPreviewResult(preview)
                                 }}
                                 className="text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all"
@@ -1440,7 +1654,9 @@ export default function ImportPage() {
                               </button>
                             </td>
                           </tr>
-                        ))}
+
+                          </Fragment>
+                        )})}
                       </tbody>
                     </table>
                   </div>
@@ -1733,10 +1949,20 @@ export default function ImportPage() {
           deptId={savedEdits.get(previewResult.filename)?.deptId || selectedDeptId || previewResult.suggested_dept_id || undefined}
           savedData={savedEdits.get(previewResult.filename)?.data}
           excelRows={excelRows.get(previewResult.filename)}
-          onClose={() => setPreviewResult(null)}
+          onClose={() => { setPreviewResult(null); setEditingDraftId(null) }}
           onExcelRowsChange={rows => {
             const name = previewResult.filename
             setExcelRows(prev => new Map(prev).set(name, rows))
+            // If editing a saved draft, persist excel rows immediately
+            if (editingDraftId != null) {
+              updateDraftExcel(editingDraftId, rows).then(() => {
+                setRecentRecords(prev => prev.map(r =>
+                  r.id === editingDraftId
+                    ? { ...r, excel_rows: rows, has_function_meta: rows.length > 0 }
+                    : r
+                ))
+              }).catch(() => {})
+            }
           }}
           onSave={(data, guId, deptId) => {
             setSavedEdits(prev => new Map(prev).set(previewResult.filename, {
@@ -1744,9 +1970,54 @@ export default function ImportPage() {
               guId: guId || selectedOrgId || previewResult.gu_id || '',
               deptId: deptId || selectedDeptId || undefined,
             }))
+            // If editing a saved draft, persist parsed data + excel rows to backend
+            if (editingDraftId != null) {
+              const draftId = editingDraftId
+              updateDraftData(draftId, data).then(() => {
+                setRecentRecords(prev => prev.map(r =>
+                  r.id === draftId
+                    ? {
+                        ...r,
+                        was_edited: true,
+                        tasks_count: data.tasks.length,
+                        rights_count: data.authorities_rights.length,
+                        responsibilities_count: data.authorities_responsibilities.length,
+                        functions_count: data.functions.length,
+                        data,
+                      }
+                    : r
+                ))
+              }).catch(() => {})
+              setEditingDraftId(null)
+            }
             setPreviewResult(null)
           }}
         />
+      )}
+
+      {/* ── Toast notification ── */}
+      {toast && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg animate-modal"
+          style={{
+            background: toast.type === 'warn' ? 'rgba(30,22,10,0.97)' : 'rgba(30,10,10,0.97)',
+            border: `1px solid ${toast.type === 'warn' ? 'rgba(251,191,36,0.4)' : 'rgba(239,68,68,0.4)'}`,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            maxWidth: 480,
+          }}
+        >
+          <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke={toast.type === 'warn' ? '#f59e0b' : '#f87171'} strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+          </svg>
+          <p className="text-[12px] font-medium" style={{ color: toast.type === 'warn' ? '#fbbf24' : '#f87171' }}>
+            {toast.msg}
+          </p>
+          <button onClick={() => setToast(null)} className="ml-2 shrink-0 opacity-50 hover:opacity-100 transition-opacity" style={{ color: 'white' }}>
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
       )}
     </div>
   )

@@ -127,8 +127,10 @@ export interface ImportedRecord {
   rights_count: number
   responsibilities_count: number
   functions_count: number
+  has_function_meta: boolean
   created_at: string
   data?: PreviewData
+  excel_rows?: ExcelFunctionRow[]
 }
 
 export interface RecordsResponse {
@@ -437,11 +439,37 @@ export async function syncDicts(): Promise<{ ok: boolean; synced: Record<string,
   return res.json()
 }
 
-export async function saveDraft(guId: string, data: PreviewData, filename?: string, guName?: string): Promise<{ success: boolean; id: number }> {
+export async function saveDraft(guId: string, data: PreviewData, filename?: string, guName?: string, excelRows?: ExcelFunctionRow[]): Promise<{ success: boolean; id: number }> {
   const res = await tauriFetch(`${BASE}/api/rgf/save-draft/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...data }),
+    body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...data, excel_rows: excelRows ?? [] }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any).error || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function updateDraftData(draftId: number, data: PreviewData): Promise<{ success: boolean }> {
+  const res = await tauriFetch(`${BASE}/api/rgf/update-draft-data/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ draft_id: draftId, ...data }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any).error || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function updateDraftExcel(draftId: number, excelRows: ExcelFunctionRow[]): Promise<{ success: boolean; has_function_meta: boolean }> {
+  const res = await tauriFetch(`${BASE}/api/rgf/update-draft-excel/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ draft_id: draftId, excel_rows: excelRows }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
