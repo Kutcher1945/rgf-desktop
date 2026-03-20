@@ -367,8 +367,13 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
   // Which function indices are expanded to show excel metadata
   const [expandedFns, setExpandedFns] = useState<Set<number>>(new Set())
   const toggleFn = (i: number, fnText?: string) => {
+    // Only create fnExcelMeta[i] when there is no existing localExcelRows match for this function.
+    // If a match exists in localExcelRows, edits go via updateExcelField (not fnExcelMeta).
     if (!fnExcelMeta[i]) {
-      setFnExcelMeta(prev => ({ ...prev, [i]: createDefaultExcelRow(fnText ?? '') }))
+      const hasExcelMatch = localExcelRows.length > 0 && !!matchExcelRow(fnText ?? '', localExcelRows)
+      if (!hasExcelMatch) {
+        setFnExcelMeta(prev => ({ ...prev, [i]: createDefaultExcelRow(fnText ?? '') }))
+      }
     }
     setExpandedFns(prev => {
       const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next
@@ -505,21 +510,22 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
     setEditData(prev => ({ ...prev, [key]: [...prev[key], ''] }))
 
   const handleSave = () => {
-    onSave(editData, selectedGuId, levelType === 'otdel' ? selectedDeptId : undefined)
+    // Fire onExcelRowsChange BEFORE onSave — page.tsx's onSave clears editingDraftIdRef
+    // synchronously, so onExcelRowsChange would see a null ref if called after.
     if (onExcelRowsChange) {
-      // Always emit a row for every function so completeness checks cover all of them:
-      // 1. user-edited meta (fnExcelMeta[i])  2. matched excel row  3. default empty row
       const allRows = editData.functions.map((fnText, i) => {
-        if (fnExcelMeta[i]) return fnExcelMeta[i]
+        // Prefer localExcelRows match (covers both uploaded excel and previously saved meta).
         if (localExcelRows.length > 0) {
           const matched = matchExcelRow(fnText, localExcelRows)
           if (matched) return matched
         }
+        // Fall back to manually entered meta (only when no localExcelRows match)
+        if (fnExcelMeta[i]) return fnExcelMeta[i]
         return createDefaultExcelRow(fnText)
       })
       onExcelRowsChange(allRows)
     }
-    onClose()
+    onSave(editData, selectedGuId, levelType === 'otdel' ? selectedDeptId : undefined)
   }
 
   return (
@@ -781,8 +787,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
             >Закрыть</button>
             <button
               onClick={handleSave}
-              disabled={!canSave}
-              className="px-5 py-2.5 text-sm font-semibold text-white bg-gov-blue hover:bg-gov-blue-hover active:bg-gov-blue-active disabled:bg-gov-blue/30 disabled:cursor-not-allowed rounded-xl transition-all"
+              className="px-5 py-2.5 text-sm font-semibold text-white bg-gov-blue hover:bg-gov-blue-hover active:bg-gov-blue-active rounded-xl transition-all"
             >
               Сохранить
             </button>

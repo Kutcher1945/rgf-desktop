@@ -138,6 +138,8 @@ export default function ImportPage() {
   const [auditPage, setAuditPage] = useState(1)
   // Which draft record is currently open in the PreviewModal (for saving back)
   const [editingDraftId, setEditingDraftId] = useState<number | null>(null)
+  // Ref mirror — always current, safe to read inside async callbacks and closures
+  const editingDraftIdRef = useRef<number | null>(null)
   // Inline excel editor for drafts table
   const [expandedDraftId, setExpandedDraftId] = useState<number | null>(null)
   const [draftExcelEdits, setDraftExcelEdits] = useState<Map<number, ExcelFunctionRow[]>>(new Map())
@@ -1277,7 +1279,7 @@ export default function ImportPage() {
                           <p className="text-[10px] truncate max-w-[220px] mt-0.5" style={{ color: 'var(--text-4)' }}>{r.filename}</p>
                           {r.was_edited && (
                             <span className="text-[9px] font-semibold px-1 py-0.5 rounded mt-0.5 inline-block"
-                                  style={{ background: 'var(--accent-violet-bg)', color: 'var(--accent-violet-fg)', border: '1px solid var(--accent-violet-border)' }}>AI/edited</span>
+                                  style={{ background: 'var(--accent-violet-bg)', color: 'var(--accent-violet-fg)', border: '1px solid var(--accent-violet-border)' }}>Изменено</span>
                           )}
                         </td>
                         <td className="px-3 py-2.5">
@@ -1642,6 +1644,7 @@ export default function ImportPage() {
                                   if (r.excel_rows && r.excel_rows.length > 0) {
                                     setExcelRows(prev => new Map(prev).set(r.filename, r.excel_rows!))
                                   }
+                                  editingDraftIdRef.current = r.id
                                   setEditingDraftId(r.id)
                                   setPreviewResult(preview)
                                 }}
@@ -1727,10 +1730,15 @@ export default function ImportPage() {
                                 onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)')}>
                               <td className="px-4 py-2.5 max-w-[200px]">
                                 <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-1)' }}>{r.filename}</p>
-                                {r.status === 'pending'
-                                  ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(251,191,36,0.12)', color: 'rgba(251,191,36,1)' }}>Черновик</span>
-                                  : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399' }}>✓ Импортирован</span>
-                                }
+                                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                  {r.status === 'pending'
+                                    ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(251,191,36,0.12)', color: 'rgba(251,191,36,1)' }}>Черновик</span>
+                                    : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399' }}>✓ Импортирован</span>
+                                  }
+                                  {r.was_edited && (
+                                    <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>Изменено оператором</span>
+                                  )}
+                                </div>
                               </td>
                               <td className="px-4 py-2.5">
                                 <span className="text-[11px] break-words leading-snug block" style={{ color: 'var(--text-2)', maxWidth: '220px' }}>{r.gu_name || r.gu_id || '—'}</span>
@@ -1781,6 +1789,11 @@ export default function ImportPage() {
                                   {/* Preview */}
                                   <button
                                     onClick={() => {
+                                      if (r.excel_rows && r.excel_rows.length > 0) {
+                                        setExcelRows(prev => new Map(prev).set(r.filename, r.excel_rows!))
+                                      }
+                                      editingDraftIdRef.current = r.id
+                                      setEditingDraftId(r.id)
                                       setPreviewResult({
                                         filename: r.filename, gu_id: r.gu_id || null, gu_name: r.gu_name || null,
                                         detected_source: null,
@@ -1949,19 +1962,20 @@ export default function ImportPage() {
           deptId={savedEdits.get(previewResult.filename)?.deptId || selectedDeptId || previewResult.suggested_dept_id || undefined}
           savedData={savedEdits.get(previewResult.filename)?.data}
           excelRows={excelRows.get(previewResult.filename)}
-          onClose={() => { setPreviewResult(null); setEditingDraftId(null) }}
+          onClose={() => { setPreviewResult(null); editingDraftIdRef.current = null; setEditingDraftId(null) }}
           onExcelRowsChange={rows => {
             const name = previewResult.filename
             setExcelRows(prev => new Map(prev).set(name, rows))
             // If editing a saved draft, persist excel rows immediately
-            if (editingDraftId != null) {
-              updateDraftExcel(editingDraftId, rows).then(() => {
+            const draftIdForExcel = editingDraftIdRef.current
+            if (draftIdForExcel != null) {
+              updateDraftExcel(draftIdForExcel, rows).then(() => {
                 setRecentRecords(prev => prev.map(r =>
-                  r.id === editingDraftId
+                  r.id === draftIdForExcel
                     ? { ...r, excel_rows: rows, has_function_meta: rows.length > 0 }
                     : r
                 ))
-              }).catch(() => {})
+              }).catch((e: Error) => { showToast(`Ошибка сохранения метаданных: ${e?.message ?? 'неизвестная ошибка'}`, 'err') })
             }
           }}
           onSave={(data, guId, deptId) => {
@@ -1971,8 +1985,8 @@ export default function ImportPage() {
               deptId: deptId || selectedDeptId || undefined,
             }))
             // If editing a saved draft, persist parsed data + excel rows to backend
-            if (editingDraftId != null) {
-              const draftId = editingDraftId
+            const draftId = editingDraftIdRef.current
+            if (draftId != null) {
               updateDraftData(draftId, data).then(() => {
                 setRecentRecords(prev => prev.map(r =>
                   r.id === draftId
@@ -1987,7 +2001,9 @@ export default function ImportPage() {
                       }
                     : r
                 ))
-              }).catch(() => {})
+                showToast('Черновик сохранён', 'warn')
+              }).catch((e: Error) => { showToast(`Ошибка сохранения: ${e?.message ?? 'неизвестная ошибка'}`, 'err') })
+              editingDraftIdRef.current = null
               setEditingDraftId(null)
             }
             setPreviewResult(null)
