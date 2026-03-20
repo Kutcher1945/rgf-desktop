@@ -487,7 +487,10 @@ export default function ImportPage() {
           continue
         }
         try {
-          await saveDraft(guId, data, f.name, guName, excelRows.get(f.name))
+          const deptIdRaw = edit?.deptId || preview?.suggested_dept_id
+          const deptIdNum = deptIdRaw ? Number(deptIdRaw) : undefined
+          const deptNameStr = preview?.suggested_dept_name ?? ''
+          await saveDraft(guId, data, f.name, guName, excelRows.get(f.name), deptIdNum, deptNameStr)
           allResults.push({ filename: f.name, status: 'success' })
         } catch (err: any) {
           allResults.push({ filename: f.name, status: 'error', error: err.message })
@@ -1738,6 +1741,10 @@ export default function ImportPage() {
                                   {r.was_edited && (
                                     <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>Изменено оператором</span>
                                   )}
+                                  {r.dept_id
+                                    ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(55,114,255,0.12)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.2)' }}>Отдел: {r.dept_name || r.dept_id}</span>
+                                    : <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}>Управление</span>
+                                  }
                                 </div>
                               </td>
                               <td className="px-4 py-2.5">
@@ -1993,6 +2000,7 @@ export default function ImportPage() {
                     ? {
                         ...r,
                         was_edited: true,
+                        status: 'pending',
                         tasks_count: data.tasks.length,
                         rights_count: data.authorities_rights.length,
                         responsibilities_count: data.authorities_responsibilities.length,

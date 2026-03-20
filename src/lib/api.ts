@@ -117,6 +117,8 @@ export interface ImportedRecord {
   filename: string
   gu_id: string
   gu_name: string
+  dept_id?: number | null
+  dept_name?: string
   status: 'success' | 'skipped' | 'error' | 'pending'
   draft_status: DraftStatus
   skip_reason?: string
@@ -440,11 +442,11 @@ export async function syncDicts(): Promise<{ ok: boolean; synced: Record<string,
   return res.json()
 }
 
-export async function saveDraft(guId: string, data: PreviewData, filename?: string, guName?: string, excelRows?: ExcelFunctionRow[]): Promise<{ success: boolean; id: number }> {
+export async function saveDraft(guId: string, data: PreviewData, filename?: string, guName?: string, excelRows?: ExcelFunctionRow[], deptId?: number | null, deptName?: string): Promise<{ success: boolean; id: number }> {
   const res = await tauriFetch(`${BASE}/api/rgf/save-draft/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...data, excel_rows: excelRows ?? [] }),
+    body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...data, excel_rows: excelRows ?? [], dept_id: deptId ?? null, dept_name: deptName ?? '' }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))

@@ -241,42 +241,29 @@ function ExcelMetaPanel({ row, rowIndex, dicts, tasks, onUpdate }: {
   const grid = "grid grid-cols-2 gap-3 px-4 py-3 border-b border-purple-100 last:border-0"
   const availableTasks = tasks.filter(t => t.trim())
 
+  const taskEmpty = !(row.task_name ?? '').trim()
+
   return (
     <div className="ml-12 mr-4 mb-2 rounded-lg overflow-hidden text-[11px]" style={{ background: '#faf5ff', border: '1px solid #e9d5ff' }}>
 
-      {/* Row 0: Наименование задачи (full width, from docx tasks) */}
-      {availableTasks.length > 0 && (
-        <div className="px-4 py-3 border-b border-purple-100">
-          <span className={LABEL_STYLE} style={{ color: '#7c3aed' }}>Наименование задачи *</span>
-          <select
-            value={row.task_name ?? ''}
-            onChange={e => onUpdate(rowIndex, 'task_name', e.target.value)}
-            className={CELL_INPUT}
-            style={CELL_STYLE}
-          >
-            <option value="">— выберите задачу —</option>
-            {availableTasks.map((t, idx) => (
-              <option key={idx} value={t}>
-                {t.length > 100 ? t.slice(0, 100) + '…' : t}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* Row 1: Структурный элемент | Наименование законодательства РК */}
-      <div className={grid}>
-        <CellText label="Структурный элемент" field="structural_element" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      {/* Row 1: Наименование законодательства РК (full width — paired with МИО in origin, which we don't show per-function) */}
+      <div className="px-4 py-3 border-b border-purple-100">
         <CellText label="Наименование законодательства РК" field="law_ru" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
       </div>
 
-      {/* Row 2: Наименование функции на русском | Наименование функции на казахском */}
+      {/* Row 2: Структурный элемент | Целевая задача */}
+      <div className={grid}>
+        <CellText label="Структурный элемент" field="structural_element" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        <CellText label="Целевая задача" field="target_task" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+      </div>
+
+      {/* Row 3: Наименование функции на русском | Наименование функции на казахском */}
       <div className={grid}>
         <CellTextArea label="Наименование функции на русском" field="function_name_ru" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
         <CellTextArea label="Наименование функции на казахском" field="function_name_kz" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
       </div>
 
-      {/* Row 3: Тип функции | Описание функции */}
+      {/* Row 4: Тип функции | Описание функции */}
       <div className={grid}>
         {dicts ? (
           <CellSelect label="Тип функции" idValue={row.function_type_id} items={dicts.function_types}
@@ -287,13 +274,13 @@ function ExcelMetaPanel({ row, rowIndex, dicts, tasks, onUpdate }: {
         <CellTextArea label="Описание функции" field="function_description" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
       </div>
 
-      {/* Row 4: Реализуется через конкурентную среду | Является госуслугой */}
+      {/* Row 5: Реализуется через конкурентную среду | Является госуслугой */}
       <div className={grid}>
         <CellBool label="Реализуется через конкурентную среду" field="is_competitive_env" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
         <CellBool label="Является госуслугой" field="is_government_service" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
       </div>
 
-      {/* Row 5: Сфера деятельности | Подсфера деятельности */}
+      {/* Row 6: Сфера деятельности | Подсфера деятельности */}
       <div className={grid}>
         {dicts ? (
           <CellSelect label="Сфера деятельности" idValue={row.activity_area_id} items={dicts.activity_areas}
@@ -312,7 +299,7 @@ function ExcelMetaPanel({ row, rowIndex, dicts, tasks, onUpdate }: {
         )}
       </div>
 
-      {/* Row 6: Функциональная группа (ЕБК) | Функциональная подгруппа (ЕБК) */}
+      {/* Row 7: Функциональная группа (ЕБК) | Функциональная подгруппа (ЕБК) */}
       <div className={grid}>
         {dicts ? (
           <CellSelect label="Функциональная группа (ЕБК)" idValue={row.functional_group_id} items={dicts.functional_groups}
@@ -331,9 +318,35 @@ function ExcelMetaPanel({ row, rowIndex, dicts, tasks, onUpdate }: {
         )}
       </div>
 
-      {/* Row 7: Целевая задача | Цифровая зрелость */}
+      {/* Row 8: Наименование задачи | Цифровая зрелость */}
       <div className={grid}>
-        <CellText label="Целевая задача" field="target_task" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
+        <div>
+          <span className={LABEL_STYLE} style={{ color: taskEmpty ? LABEL_EMPTY_COLOR : '#7c3aed' }}>
+            Наименование задачи *{taskEmpty && <EmptyDot />}
+          </span>
+          {availableTasks.length > 0 ? (
+            <select
+              value={row.task_name ?? ''}
+              onChange={e => onUpdate(rowIndex, 'task_name', e.target.value)}
+              className={CELL_INPUT + ' focus:border-purple-400'}
+              style={taskEmpty ? CELL_EMPTY_STYLE : CELL_STYLE}
+            >
+              <option value="">— выберите задачу —</option>
+              {availableTasks.map((t, idx) => (
+                <option key={idx} value={t}>{t.length > 100 ? t.slice(0, 100) + '…' : t}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={row.task_name ?? ''}
+              onChange={e => onUpdate(rowIndex, 'task_name', e.target.value)}
+              className={CELL_INPUT + ' focus:border-purple-400'}
+              style={taskEmpty ? CELL_EMPTY_STYLE : CELL_STYLE}
+              placeholder="—"
+            />
+          )}
+        </div>
         {dicts ? (
           <CellSelect label="Цифровая зрелость" idValue={row.digital_maturity_id} items={dicts.digital_maturities}
             onChange={(name, id) => { onUpdate(rowIndex, 'digital_maturity', name); onUpdate(rowIndex, 'digital_maturity_id', id) }} />
@@ -342,7 +355,7 @@ function ExcelMetaPanel({ row, rowIndex, dicts, tasks, onUpdate }: {
         )}
       </div>
 
-      {/* Row 8: Описание результата (full width) */}
+      {/* Row 9: Описание результата (full width) */}
       <div className="px-4 py-3">
         <CellTextArea label="Описание результата" field="result_description" row={row} rowIndex={rowIndex} onUpdate={onUpdate} />
       </div>
