@@ -74,23 +74,36 @@ const SECTION_CONFIG = [
 
 type ListKey = 'tasks' | 'authorities_rights' | 'authorities_responsibilities' | 'functions'
 
-/** Find the best-matching excel row for a given function text. */
-function matchExcelRow(fnText: string, rows: ExcelFunctionRow[]): ExcelFunctionRow | undefined {
+/** Find the best-matching excel row for a given function text.
+ *  fnIndex: position of the function in the docx list — used as a tiebreaker
+ *  when multiple Excel rows have the same word-overlap score (e.g. all functions
+ *  start with "Осуществление контроля за..."). */
+function matchExcelRow(fnText: string, rows: ExcelFunctionRow[], fnIndex?: number): ExcelFunctionRow | undefined {
   if (!rows.length || !fnText.trim()) return undefined
   const fn = fnText.toLowerCase().replace(/[;,]/g, '').trim()
-  // Exact or near-exact substring match first
+  // 1. Exact match
   for (const r of rows) {
     const ru = r.function_name_ru.toLowerCase().replace(/[;,]/g, '').trim()
-    if (fn === ru || fn.startsWith(ru.slice(0, 30)) || ru.startsWith(fn.slice(0, 30))) return r
+    if (fn === ru) return r
   }
-  // Word-overlap fallback
+  // 2. Long-prefix match (≥60 chars) — avoids false positives from short shared prefixes
+  for (let j = 0; j < rows.length; j++) {
+    const ru = rows[j].function_name_ru.toLowerCase().replace(/[;,]/g, '').trim()
+    const minLen = Math.min(fn.length, ru.length)
+    if (minLen >= 60 && (fn.startsWith(ru.slice(0, 60)) || ru.startsWith(fn.slice(0, 60)))) return rows[j]
+  }
+  // 3. Word-overlap with position bonus as tiebreaker
   const words = fn.split(/\s+/).filter(w => w.length > 4)
+  if (!words.length) return undefined
   let best: ExcelFunctionRow | undefined
-  let bestScore = 0
-  for (const r of rows) {
-    const ru = r.function_name_ru.toLowerCase()
-    const score = words.filter(w => ru.includes(w)).length
-    if (score > bestScore) { bestScore = score; best = r }
+  let bestScore = -1
+  for (let j = 0; j < rows.length; j++) {
+    const ru = rows[j].function_name_ru.toLowerCase()
+    const textScore = words.filter(w => ru.includes(w)).length
+    // Position bonus: row closest in index to fnIndex scores up to +0.5 extra
+    const posBonus = fnIndex !== undefined ? Math.max(0, 0.5 - Math.abs(j - fnIndex) / rows.length) : 0
+    const score = textScore + posBonus
+    if (score > bestScore) { bestScore = score; best = rows[j] }
   }
   return bestScore >= Math.max(2, Math.floor(words.length * 0.4)) ? best : undefined
 }
@@ -383,7 +396,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
     // Only create fnExcelMeta[i] when there is no existing localExcelRows match for this function.
     // If a match exists in localExcelRows, edits go via updateExcelField (not fnExcelMeta).
     if (!fnExcelMeta[i]) {
-      const hasExcelMatch = localExcelRows.length > 0 && !!matchExcelRow(fnText ?? '', localExcelRows)
+      const hasExcelMatch = localExcelRows.length > 0 && !!matchExcelRow(fnText ?? '', localExcelRows, i)
       if (!hasExcelMatch) {
         setFnExcelMeta(prev => ({ ...prev, [i]: createDefaultExcelRow(fnText ?? '') }))
       }
@@ -529,7 +542,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
       const allRows = editData.functions.map((fnText, i) => {
         // Prefer localExcelRows match (covers both uploaded excel and previously saved meta).
         if (localExcelRows.length > 0) {
-          const matched = matchExcelRow(fnText, localExcelRows)
+          const matched = matchExcelRow(fnText, localExcelRows, i)
           if (matched) return matched
         }
         // Fall back to manually entered meta (only when no localExcelRows match)
@@ -673,7 +686,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, department
 
                   <div className="bg-white divide-y divide-gov-grey-light">
                     {items.map((item, i) => {
-                      const excelRowMatch = key === 'functions' && localExcelRows.length > 0 ? matchExcelRow(item, localExcelRows) : undefined
+                      const excelRowMatch = key === 'functions' && localExcelRows.length > 0 ? matchExcelRow(item, localExcelRows, i) : undefined
                       const excelRowIdx = excelRowMatch ? localExcelRows.indexOf(excelRowMatch) : -1
                       const excelRow = excelRowIdx >= 0 ? localExcelRows[excelRowIdx] : undefined
                       // When no Excel file loaded, use per-function metadata
