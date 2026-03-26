@@ -144,6 +144,8 @@ export default function ImportPage() {
   const [editingDraftId, setEditingDraftId] = useState<number | null>(null)
   // Ref mirror — always current, safe to read inside async callbacks and closures
   const editingDraftIdRef = useRef<number | null>(null)
+  // Inline staff count editor per draft row (id → value)
+  const [draftStaffEdits, setDraftStaffEdits] = useState<Map<number, number>>(new Map())
   // Inline excel editor for drafts table
   const [expandedDraftId, setExpandedDraftId] = useState<number | null>(null)
   const [draftExcelEdits, setDraftExcelEdits] = useState<Map<number, ExcelFunctionRow[]>>(new Map())
@@ -1869,13 +1871,44 @@ export default function ImportPage() {
                                   >Редактировать</button>
                                   {/* Submit to planning.gov.kz */}
                                   {r.status === 'pending' ? (
+                                    <>
+                                    {/* Inline штатная численность editor */}
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      title="Штатная численность"
+                                      value={draftStaffEdits.get(r.id) ?? r.data?.staff_numbers ?? 1}
+                                      onChange={e => {
+                                        const v = Math.max(1, parseInt(e.target.value) || 1)
+                                        setDraftStaffEdits(prev => new Map(prev).set(r.id, v))
+                                      }}
+                                      onBlur={async e => {
+                                        const v = Math.max(1, parseInt(e.target.value) || 1)
+                                        try {
+                                          await updateDraftData(r.id, { ...(r.data ?? { general_provisions: '', tasks: [], authorities_rights: [], authorities_responsibilities: [], functions: [], additions: '' }), staff_numbers: v })
+                                          setRecentRecords(prev => prev.map(rec => rec.id === r.id ? { ...rec, data: { ...(rec.data ?? { general_provisions: '', tasks: [], authorities_rights: [], authorities_responsibilities: [], functions: [], additions: '' }), staff_numbers: v } } : rec))
+                                        } catch {}
+                                      }}
+                                      className="w-14 text-[11px] text-center rounded-lg outline-none px-1.5 py-1 transition-all"
+                                      style={{ background: 'rgba(255,255,255,0.06)', color: '#e2e8f0', border: '1px solid rgba(255,255,255,0.12)' }}
+                                    />
                                     <button
                                       disabled={submittingDraftId === r.id}
                                       onClick={async () => {
                                         setSubmittingDraftId(r.id)
+                                        // Always persist current staff_numbers to DB before submitting.
+                                        // draftStaffEdits covers inline-input edits; r.data covers modal edits
+                                        // (optimistic update sets r.data.staff_numbers synchronously on modal save).
+                                        const staffVal = draftStaffEdits.get(r.id) ?? r.data?.staff_numbers
+                                        if (staffVal != null) {
+                                          try {
+                                            await updateDraftData(r.id, { ...(r.data ?? { general_provisions: '', tasks: [], authorities_rights: [], authorities_responsibilities: [], functions: [], additions: '' }), staff_numbers: staffVal })
+                                          } catch {}
+                                        }
                                         try {
                                           await submitDraft(r.id)
                                           await refreshRecords()
+                                          setDraftStaffEdits(prev => { const n = new Map(prev); n.delete(r.id); return n })
                                         } catch (e: any) {
                                           alert('Ошибка: ' + e?.message)
                                         } finally {
@@ -1889,6 +1922,7 @@ export default function ImportPage() {
                                     >
                                       {submittingDraftId === r.id ? '...' : 'Загрузить'}
                                     </button>
+                                    </>
                                   ) : (
                                     r.url ? (
                                       <a href={r.url} target="_blank" rel="noopener noreferrer"
@@ -2079,21 +2113,23 @@ export default function ImportPage() {
             // If editing a saved draft, persist parsed data + excel rows to backend
             const draftId = editingDraftIdRef.current
             if (draftId != null) {
+              // Optimistic update — reflect new data in state immediately so
+              // a rapid click on Загрузить reads the correct staff_numbers
+              setRecentRecords(prev => prev.map(r =>
+                r.id === draftId
+                  ? {
+                      ...r,
+                      was_edited: true,
+                      status: 'pending',
+                      tasks_count: data.tasks.length,
+                      rights_count: data.authorities_rights.length,
+                      responsibilities_count: data.authorities_responsibilities.length,
+                      functions_count: data.functions.length,
+                      data,
+                    }
+                  : r
+              ))
               updateDraftData(draftId, data).then(() => {
-                setRecentRecords(prev => prev.map(r =>
-                  r.id === draftId
-                    ? {
-                        ...r,
-                        was_edited: true,
-                        status: 'pending',
-                        tasks_count: data.tasks.length,
-                        rights_count: data.authorities_rights.length,
-                        responsibilities_count: data.authorities_responsibilities.length,
-                        functions_count: data.functions.length,
-                        data,
-                      }
-                    : r
-                ))
                 showToast('Черновик сохранён', 'warn')
               }).catch((e: Error) => { showToast(`Ошибка сохранения: ${e?.message ?? 'неизвестная ошибка'}`, 'err') })
               editingDraftIdRef.current = null
