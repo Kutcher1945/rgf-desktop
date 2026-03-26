@@ -254,7 +254,9 @@ function ExcelMetaPanel({ row, rowIndex, dicts, tasks, onUpdate }: {
   const grid = "grid grid-cols-2 gap-3 px-4 py-3 border-b border-purple-100 last:border-0"
   const availableTasks = tasks.filter(t => t.trim())
 
+  // Highlight when empty OR when value doesn't match any option (select shows placeholder)
   const taskEmpty = !(row.task_name ?? '').trim()
+    || (availableTasks.length > 0 && !availableTasks.includes(row.task_name ?? ''))
 
   return (
     <div className="ml-12 mr-4 mb-2 rounded-lg overflow-hidden text-[11px]" style={{ background: '#faf5ff', border: '1px solid #e9d5ff' }}>

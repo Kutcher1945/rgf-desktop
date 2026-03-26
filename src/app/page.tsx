@@ -129,6 +129,10 @@ export default function ImportPage() {
   const [previewCache, setPreviewCache] = useState<Map<string, PreviewResult>>(new Map())
   const [recentRecords, setRecentRecords] = useState<ImportedRecord[]>([])
   const [recordsLoading, setRecordsLoading] = useState(true)
+  const [expandedAdminWarnings, setExpandedAdminWarnings] = useState<Set<number>>(new Set())
+  const toggleAdminWarning = (id: number) => setExpandedAdminWarnings(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
+  })
   // Tabs
   const [activeTab, setActiveTab] = useState<'history' | 'audit' | 'registry'>('registry')
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
@@ -1726,11 +1730,40 @@ export default function ImportPage() {
                       <tbody>
                         {drafts.map((r, idx) => {
                           const cur = DRAFT_STATUSES.find(s => s.value === r.draft_status) ?? DRAFT_STATUSES[0]
+                          const ADMIN_REQUIRED: { key: keyof ExcelFunctionRow; label: string }[] = [
+                            { key: 'function_name_kz',        label: 'Название (каз.)'        },
+                            { key: 'function_type',           label: 'Тип функции'            },
+                            { key: 'task_name',               label: 'Задача'                 },
+                            { key: 'activity_area_name',      label: 'Сфера деятельности'     },
+                            { key: 'sub_activity_area_name',  label: 'Подсфера'               },
+                            { key: 'functional_group_name',   label: 'Функц. группа (ЕБК)'   },
+                            { key: 'functional_subgroup_name',label: 'Функц. подгруппа (ЕБК)' },
+                            { key: 'structural_element',      label: 'Структурный элемент'    },
+                            { key: 'law_ru',                  label: 'Законодательство'       },
+                            { key: 'digital_maturity',        label: 'Цифровая зрелость'      },
+                          ]
+                          const issues = (r.excel_rows ?? []).map((row, i) => ({
+                            index: i,
+                            name: row.function_name_ru,
+                            missing: ADMIN_REQUIRED.filter(f => !String((row as unknown as Record<string, unknown>)[f.key as string] ?? '').trim()).map(f => f.label),
+                          })).filter(x => x.missing.length > 0)
+                          const missingRows = r.functions_count > (r.excel_rows?.length ?? 0)
+                          const needsMeta = r.functions_count > 0 && (!r.has_function_meta || missingRows || issues.length > 0)
+                          const isWarnOpen = expandedAdminWarnings.has(r.id)
+                          const baseBg = needsMeta
+                            ? (idx % 2 === 0 ? 'rgba(251,191,36,0.05)' : 'rgba(251,191,36,0.03)')
+                            : (idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)')
                           return (
-                            <tr key={r.id} className="border-b transition-colors"
-                                style={{ background: idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)', borderColor: 'var(--divide)' }}
-                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
-                                onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)')}>
+                            <Fragment key={r.id}>
+                            <tr className="border-b transition-colors"
+                                style={{
+                                  background: baseBg,
+                                  borderColor: 'var(--divide)',
+                                  borderBottom: isWarnOpen ? 'none' : undefined,
+                                  borderLeft: needsMeta ? '3px solid rgba(251,191,36,0.5)' : '3px solid transparent',
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = needsMeta ? 'rgba(251,191,36,0.1)' : 'var(--surface-hover)')}
+                                onMouseLeave={e => (e.currentTarget.style.background = baseBg)}>
                               <td className="px-4 py-2.5 max-w-[200px]">
                                 <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-1)' }}>{r.filename}</p>
                                 <div className="flex items-center gap-1 mt-0.5 flex-wrap">
@@ -1760,6 +1793,26 @@ export default function ImportPage() {
                                     <span key={label} className="text-[10px] font-semibold px-1 py-0.5 rounded"
                                           style={{ background: c, color: t }}>{v} {label}</span>
                                   ))}
+                                  {needsMeta && (
+                                    <button
+                                      onClick={() => toggleAdminWarning(r.id)}
+                                      title="Незаполненные поля функций"
+                                      className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded transition-all"
+                                      style={{
+                                        background: isWarnOpen ? 'rgba(251,191,36,0.3)' : 'rgba(251,191,36,0.15)',
+                                        color: '#f59e0b',
+                                        border: '1px solid rgba(251,191,36,0.3)',
+                                      }}
+                                    >
+                                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                                      </svg>
+                                      {!r.has_function_meta ? 'нет метаданных' : `${issues.length} фун.`}
+                                      <svg className="w-2 h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d={isWarnOpen ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
+                                      </svg>
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-4 py-2.5">
@@ -1848,6 +1901,38 @@ export default function ImportPage() {
                                 </div>
                               </td>
                             </tr>
+
+                            {/* ── Collapsible missing-fields detail row ── */}
+                            {needsMeta && isWarnOpen && (
+                              <tr style={{ borderBottom: '1px solid var(--divide)', borderLeft: '3px solid rgba(251,191,36,0.5)' }}>
+                                <td colSpan={6} className="px-5 pb-3 pt-0" style={{ background: 'rgba(251,191,36,0.04)' }}>
+                                  {!r.has_function_meta ? (
+                                    <p className="text-xs py-2" style={{ color: '#f59e0b' }}>
+                                      Метаданные функций не заполнены. Откройте черновик и раскройте каждую функцию чтобы заполнить поля.
+                                    </p>
+                                  ) : (
+                                    <div className="space-y-1.5 pt-1">
+                                      {issues.map(issue => (
+                                        <div key={issue.index} className="rounded-lg px-3 py-2" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)' }}>
+                                          <p className="text-[11px] font-semibold truncate mb-1" style={{ color: '#fbbf24' }}>
+                                            {issue.index + 1}. {issue.name || '(без названия)'}
+                                          </p>
+                                          <div className="flex flex-wrap gap-1">
+                                            {issue.missing.map(field => (
+                                              <span key={field} className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                                                    style={{ background: 'rgba(251,191,36,0.15)', color: '#f59e0b' }}>
+                                                {field}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                            </Fragment>
                           )
                         })}
                       </tbody>
