@@ -78,17 +78,20 @@ type ListKey = 'tasks' | 'authorities_rights' | 'authorities_responsibilities' |
  *  fnIndex: position of the function in the docx list — used as a tiebreaker
  *  when multiple Excel rows have the same word-overlap score (e.g. all functions
  *  start with "Осуществление контроля за..."). */
+// Strip leading "N) " or "N. " numbering from function text before comparing
+const _stripNum = (s: string) => s.replace(/^\d+[\)\.]\s+/, '')
+
 function matchExcelRow(fnText: string, rows: ExcelFunctionRow[], fnIndex?: number): ExcelFunctionRow | undefined {
   if (!rows.length || !fnText.trim()) return undefined
-  const fn = fnText.toLowerCase().replace(/[;,]/g, '').trim()
+  const fn = _stripNum(fnText).toLowerCase().replace(/[;,]/g, '').trim()
   // 1. Exact match
   for (const r of rows) {
-    const ru = r.function_name_ru.toLowerCase().replace(/[;,]/g, '').trim()
+    const ru = _stripNum(r.function_name_ru).toLowerCase().replace(/[;,]/g, '').trim()
     if (fn === ru) return r
   }
   // 2. Long-prefix match (≥60 chars) — avoids false positives from short shared prefixes
   for (let j = 0; j < rows.length; j++) {
-    const ru = rows[j].function_name_ru.toLowerCase().replace(/[;,]/g, '').trim()
+    const ru = _stripNum(rows[j].function_name_ru).toLowerCase().replace(/[;,]/g, '').trim()
     const minLen = Math.min(fn.length, ru.length)
     if (minLen >= 60 && (fn.startsWith(ru.slice(0, 60)) || ru.startsWith(fn.slice(0, 60)))) return rows[j]
   }
