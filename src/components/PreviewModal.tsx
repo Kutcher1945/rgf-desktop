@@ -191,24 +191,75 @@ function CellSelect({ label, idValue, items, onChange, placeholder = '— не �
   placeholder?: string
 }) {
   const empty = idValue === undefined || idValue === null
+  const selectedItem = items.find(x => x.id === idValue)
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false); setSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const filtered = search.trim()
+    ? items.filter(x => x.name.toLowerCase().includes(search.toLowerCase()))
+    : items
+
   return (
-    <div>
+    <div ref={containerRef} className="relative">
       <span className={LABEL_STYLE} style={{ color: empty ? LABEL_EMPTY_COLOR : LABEL_COLOR }}>
         {label} *{empty && <EmptyDot />}
       </span>
-      <select
-        value={idValue ?? ''}
-        onChange={e => {
-          const id = e.target.value ? Number(e.target.value) : undefined
-          const item = items.find(x => x.id === id)
-          onChange(item?.name ?? '', id)
-        }}
-        className={CELL_INPUT + ' focus:border-purple-400'}
+      <button
+        type="button"
+        onClick={() => { setOpen(o => !o); setSearch('') }}
+        className={CELL_INPUT + ' flex items-center gap-1 text-left w-full focus:border-purple-400'}
         style={empty ? CELL_EMPTY_STYLE : CELL_STYLE}
       >
-        <option value="">{placeholder}</option>
-        {items.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-      </select>
+        <span className="flex-1 truncate" style={{ color: empty ? '#9ca3af' : 'inherit' }}>
+          {selectedItem?.name || placeholder}
+        </span>
+        <svg className="w-3 h-3 shrink-0 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-0.5 w-full bg-white rounded-lg shadow-xl overflow-hidden" style={{ border: '1px solid #e9d5ff', minWidth: '180px' }}>
+          <div className="p-1.5 border-b border-purple-100">
+            <input
+              autoFocus
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Поиск..."
+              className="w-full text-[11px] px-2 py-1 rounded outline-none"
+              style={{ border: '1px solid #d8b4fe' }}
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            <div
+              className="px-3 py-1.5 text-[11px] cursor-pointer hover:bg-purple-50 text-gray-400"
+              onMouseDown={() => { onChange('', undefined); setOpen(false); setSearch('') }}
+            >{placeholder}</div>
+            {filtered.map(x => (
+              <div
+                key={x.id}
+                className="px-3 py-1.5 text-[11px] cursor-pointer hover:bg-purple-50 leading-snug"
+                style={x.id === idValue ? { background: '#f3e8ff', fontWeight: 500 } : {}}
+                onMouseDown={() => { onChange(x.name, x.id); setOpen(false); setSearch('') }}
+              >{x.name}</div>
+            ))}
+            {filtered.length === 0 && (
+              <div className="px-3 py-2 text-[11px] text-gray-400 text-center">Ничего не найдено</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -232,6 +283,78 @@ function CellBool({ label, field, row, rowIndex, onUpdate }: {
         <option value="no">Нет</option>
         <option value="yes">Да</option>
       </select>
+    </div>
+  )
+}
+
+function TaskSelect({ value, tasks, empty, onChange }: {
+  value: string
+  tasks: string[]
+  empty: boolean
+  onChange: (v: string) => void
+}) {
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false); setSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const filtered = search.trim()
+    ? tasks.filter(t => t.toLowerCase().includes(search.toLowerCase()))
+    : tasks
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => { setOpen(o => !o); setSearch('') }}
+        className={CELL_INPUT + ' flex items-center gap-1 text-left w-full focus:border-purple-400'}
+        style={empty ? CELL_EMPTY_STYLE : CELL_STYLE}
+      >
+        <span className="flex-1 line-clamp-2 text-left" style={{ color: !value ? '#9ca3af' : 'inherit' }}>
+          {value || '— выберите задачу —'}
+        </span>
+        <svg className="w-3 h-3 shrink-0 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-0.5 w-full bg-white rounded-lg shadow-xl overflow-hidden" style={{ border: '1px solid #e9d5ff', minWidth: '220px' }}>
+          <div className="p-1.5 border-b border-purple-100">
+            <input
+              autoFocus
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Поиск задачи..."
+              className="w-full text-[11px] px-2 py-1 rounded outline-none"
+              style={{ border: '1px solid #d8b4fe' }}
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto">
+            <div className="px-3 py-1.5 text-[11px] cursor-pointer hover:bg-purple-50 text-gray-400"
+              onMouseDown={() => { onChange(''); setOpen(false); setSearch('') }}>— выберите задачу —</div>
+            {filtered.map((t, idx) => (
+              <div key={idx}
+                className="px-3 py-2 text-[11px] cursor-pointer hover:bg-purple-50 leading-snug"
+                style={t === value ? { background: '#f3e8ff', fontWeight: 500 } : {}}
+                onMouseDown={() => { onChange(t); setOpen(false); setSearch('') }}
+              >{t}</div>
+            ))}
+            {filtered.length === 0 && (
+              <div className="px-3 py-2 text-[11px] text-gray-400 text-center">Ничего не найдено</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -342,28 +465,12 @@ function ExcelMetaPanel({ row, rowIndex, dicts, tasks, onUpdate }: {
           <span className={LABEL_STYLE} style={{ color: taskEmpty ? LABEL_EMPTY_COLOR : '#7c3aed' }}>
             Наименование задачи *{taskEmpty && <EmptyDot />}
           </span>
-          {availableTasks.length > 0 ? (
-            <select
-              value={row.task_name ?? ''}
-              onChange={e => onUpdate(rowIndex, 'task_name', e.target.value)}
-              className={CELL_INPUT + ' focus:border-purple-400'}
-              style={taskEmpty ? CELL_EMPTY_STYLE : CELL_STYLE}
-            >
-              <option value="">— выберите задачу —</option>
-              {availableTasks.map((t, idx) => (
-                <option key={idx} value={t}>{t.length > 100 ? t.slice(0, 100) + '…' : t}</option>
-              ))}
-            </select>
-          ) : (
-            <input
-              type="text"
-              value={row.task_name ?? ''}
-              onChange={e => onUpdate(rowIndex, 'task_name', e.target.value)}
-              className={CELL_INPUT + ' focus:border-purple-400'}
-              style={taskEmpty ? CELL_EMPTY_STYLE : CELL_STYLE}
-              placeholder="—"
-            />
-          )}
+          {availableTasks.length > 0
+            ? <TaskSelect value={row.task_name ?? ''} tasks={availableTasks} empty={taskEmpty}
+                onChange={v => onUpdate(rowIndex, 'task_name', v)} />
+            : <input type="text" value={row.task_name ?? ''} onChange={e => onUpdate(rowIndex, 'task_name', e.target.value)}
+                className={CELL_INPUT + ' focus:border-purple-400'} style={taskEmpty ? CELL_EMPTY_STYLE : CELL_STYLE} placeholder="—" />
+          }
         </div>
         {dicts ? (
           <CellSelect label="Цифровая зрелость" idValue={row.digital_maturity_id} items={dicts.digital_maturities}
@@ -467,7 +574,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
         }
         if (!updated.functional_group_id && updated.functional_group_name) {
           const m = fuzzyMatch(d.functional_groups, updated.functional_group_name)
-          if (m) updated.functional_group_id = m.id
+          if (m) { updated.functional_group_id = m.id; updated.functional_group_name = m.name }
         }
         if (!updated.functional_subgroup_id && updated.functional_subgroup_name) {
           // Try filtered by group first, fall back to all
@@ -475,7 +582,23 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
             ? d.functional_subgroups.filter(x => x.group_id === updated.functional_group_id)
             : d.functional_subgroups
           const m = fuzzyMatch(scoped.length ? scoped : d.functional_subgroups, updated.functional_subgroup_name)
-          if (m) updated.functional_subgroup_id = m.id
+          if (m) { updated.functional_subgroup_id = m.id; updated.functional_subgroup_name = m.name }
+        }
+        // Backfill group from subgroup when group match failed but subgroup was found
+        if (!updated.functional_group_id && updated.functional_subgroup_id) {
+          const sg = d.functional_subgroups.find(x => x.id === updated.functional_subgroup_id)
+          if (sg?.group_id) {
+            const grp = d.functional_groups.find(x => x.id === sg.group_id)
+            if (grp) { updated.functional_group_id = grp.id; updated.functional_group_name = grp.name }
+          }
+        }
+        // Backfill area from sub-area when area match failed but sub-area was found
+        if (!updated.activity_area_id && updated.sub_activity_area_id) {
+          const sa = d.sub_activity_areas.find(x => x.id === updated.sub_activity_area_id)
+          if (sa?.area_id) {
+            const area = d.activity_areas.find(x => x.id === sa.area_id)
+            if (area) { updated.activity_area_id = area.id; updated.activity_area_name = area.name }
+          }
         }
 
         return updated
@@ -514,6 +637,44 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
       staff_numbers:                src.staff_numbers ?? 1,
     }
   })
+
+  // Auto-match task_name from Excel against document tasks using fuzzy matching
+  useEffect(() => {
+    const docTasks = editData.tasks.filter(t => t.trim())
+    if (!docTasks.length) return
+    const fuzzyTaskMatch = (name: string): string | undefined => {
+      if (!name) return undefined
+      const n = name.toLowerCase().trim()
+      let m = docTasks.find(t => t.toLowerCase().trim() === n)
+      if (m) return m
+      m = docTasks.find(t => { const tn = t.toLowerCase().trim(); return tn.includes(n) || n.includes(tn) })
+      if (m) return m
+      const words = n.split(/\s+/).filter(w => w.length > 3)
+      if (!words.length) return undefined
+      let best: string | undefined; let bestScore = 0
+      for (const t of docTasks) {
+        const tn = t.toLowerCase()
+        const score = words.filter(w => tn.includes(w)).length
+        if (score > bestScore) { bestScore = score; best = t }
+      }
+      return bestScore >= Math.max(1, Math.floor(words.length * 0.5)) ? best : undefined
+    }
+    setLocalExcelRows(prev => prev.map(row => {
+      if (!row.task_name || docTasks.includes(row.task_name)) return row
+      const matched = fuzzyTaskMatch(row.task_name)
+      return matched ? { ...row, task_name: matched } : row
+    }))
+    setFnExcelMeta(prev => {
+      const next = { ...prev }
+      for (const key of Object.keys(prev)) {
+        const row = prev[+key]
+        if (!row.task_name || docTasks.includes(row.task_name)) continue
+        const matched = fuzzyTaskMatch(row.task_name)
+        if (matched) next[+key] = { ...row, task_name: matched }
+      }
+      return next
+    })
+  }, [editData.tasks]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const stats = {
     rights:           editData.authorities_rights.filter(s => s.trim()).length,
