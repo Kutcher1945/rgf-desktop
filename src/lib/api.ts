@@ -205,7 +205,7 @@ export interface ParsedImportResult {
   functions_failed?: number
 }
 
-export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string, departmentId?: number, existingPositionRecordId?: number, parentPositionRecordId?: number): Promise<ParsedImportResult> {
+export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string, departmentId?: number, existingPositionRecordId?: number, parentPositionRecordId?: number, excelRows?: ExcelFunctionRow[]): Promise<ParsedImportResult> {
   const res = await tauriFetch(`${BASE}/api/rgf/import-parsed/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -217,6 +217,7 @@ export async function importParsed(guId: string, data: PreviewData, filename?: s
       ...(existingPositionRecordId ? { existing_position_record_id: existingPositionRecordId } : {}),
       ...(parentPositionRecordId ? { parent_position_record_id: parentPositionRecordId } : {}),
       ...data,
+      excel_rows: excelRows ?? [],
     }),
   })
   if (!res.ok) {

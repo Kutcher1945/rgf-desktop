@@ -384,12 +384,12 @@ function ExcelMetaPanel({ row, rowIndex, dicts, tasks, onUpdate }: {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function PreviewModal({ result, guId, orgs, levelType, departments, deptId, savedData, excelRows, onClose, onSave, onExcelRowsChange }: Props) {
+export default function PreviewModal({ result, guId, orgs, levelType, deptId, savedData, excelRows, onClose, onSave, onExcelRowsChange }: Props) {
   const { filename, gu_name, gu_id } = result
 
   const [selectedGuId, setSelectedGuId] = useState<string>(guId ?? gu_id ?? '')
   const [selectedDeptId, setSelectedDeptId] = useState<string>(deptId ?? '')
-  const [localDepts, setLocalDepts] = useState<Department[]>(departments ?? [])
+  const [localDepts, setLocalDepts] = useState<Department[]>([])
   // Editable local copy of excel rows
   const [localExcelRows, setLocalExcelRows] = useState<ExcelFunctionRow[]>(() => excelRows ? [...excelRows] : [])
   // Whether excel was originally provided (vs user-entered metadata)

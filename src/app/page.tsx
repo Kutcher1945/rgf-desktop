@@ -15,6 +15,7 @@ interface SavedEdit {
   data: PreviewData
   guId: string
   deptId?: string
+  deptName?: string
 }
 
 function timeAgo(dateStr: string): string {
@@ -412,7 +413,7 @@ export default function ImportPage() {
             const guName = cached?.gu_name ?? ''
             const existingPid = cached?.existing_position_record_id
             const parentPid = cached?.parent_position_record_id
-            const r = await importParsed(effectiveGuId, data, f.name, guName, deptId, existingPid, parentPid)
+            const r = await importParsed(effectiveGuId, data, f.name, guName, deptId, existingPid, parentPid, excelRows.get(f.name))
             allResults.push({ filename: f.name, ...r })
           } catch (err: any) {
             allResults.push({ filename: f.name, status: 'error', error: err.message })
@@ -441,7 +442,7 @@ export default function ImportPage() {
           const parentPid = cached.parent_position_record_id
           const existingPid = cached.existing_position_record_id
           try {
-            const r = await importParsed(effectiveGuId, cached.data, f.name, guName, deptId, existingPid, parentPid)
+            const r = await importParsed(effectiveGuId, cached.data, f.name, guName, deptId, existingPid, parentPid, excelRows.get(f.name))
             allResults.push({ filename: f.name, ...r })
           } catch (err: any) {
             allResults.push({ filename: f.name, status: 'error', error: err.message })
@@ -957,8 +958,13 @@ export default function ImportPage() {
                   const cached = previewCache.get(f.name)
                   const hasError = !isReviewed && cached && cached.issues.length > 0
                   const hasWarning = !isReviewed && !hasError && cached && cached.warnings.length > 0
+                  const edit = savedEdits.get(f.name)
+                  const displayGuName = cached?.gu_name || (edit?.guId ? orgs.find(o => String(o.id) === edit.guId)?.name : undefined)
+                  const displayDeptName = (levelType === 'otdel')
+                    ? (edit?.deptName || cached?.suggested_dept_name)
+                    : undefined
                   return (
-                    <div key={f.name} className="px-3.5 py-3 transition-colors"
+                    <div key={f.name} className="px-3.5 py-2.5 transition-colors"
                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
                       {/* Row 1: icon + full name + status badge + remove */}
@@ -968,9 +974,6 @@ export default function ImportPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <span className="text-[11px] font-medium leading-snug break-all" style={{ color: 'var(--text-2)' }}>{f.name}</span>
-                          {cached?.gu_name && (
-                            <span className="text-[10px] block mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>{cached.gu_name}</span>
-                          )}
                         </div>
                         {isReviewed && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md shrink-0 whitespace-nowrap"
@@ -994,6 +997,40 @@ export default function ImportPage() {
                           <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
                       </div>
+                      {/* Meta: GU + dept */}
+                      {(displayGuName || displayDeptName) && (
+                        <div className="ml-8 mt-1 flex flex-col gap-0.5">
+                          {displayGuName && (
+                            <div className="flex items-start gap-1">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-2.5 h-2.5 shrink-0 mt-0.5 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                              <span className="text-[10px] leading-snug" style={{ color: 'var(--text-3)' }}>{displayGuName}</span>
+                            </div>
+                          )}
+                          {displayDeptName && (
+                            <div className="flex items-start gap-1 ml-3">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-2.5 h-2.5 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--gov-blue, #3772ff)', opacity: 0.7 }}><polyline points="9 18 15 12 9 6"/></svg>
+                              <span className="text-[10px] leading-snug font-medium" style={{ color: 'var(--gov-blue, #3772ff)', opacity: 0.85 }}>{displayDeptName}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {/* Stats row */}
+                      {cached?.stats && (
+                        <div className="ml-8 mt-1.5 flex items-center gap-1 flex-wrap">
+                          {[
+                            { label: 'Задачи', val: cached.stats.tasks, color: '#a78bfa' },
+                            { label: 'Права', val: cached.stats.rights, color: '#34d399' },
+                            { label: 'Обяз.', val: cached.stats.responsibilities, color: '#f59e0b' },
+                            { label: 'Функции', val: cached.stats.functions, color: '#60a5fa' },
+                          ].map(({ label, val, color }) => (
+                            <span key={label} className="flex items-center gap-0.5 text-[9.5px] px-1.5 py-0.5 rounded-md font-medium"
+                                  style={{ background: `${color}14`, color, border: `1px solid ${color}30` }}>
+                              <span className="font-bold">{val}</span>
+                              <span className="opacity-70">{label}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {/* Row 2: action buttons */}
                       <div className="flex items-center gap-1.5 mt-2 ml-8">
                         {/* Excel attachment button */}
@@ -1084,7 +1121,7 @@ export default function ImportPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] font-semibold truncate" style={{ color: 'var(--text-2)' }}>{r.filename}</p>
                       <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)', wordBreak: 'break-word' }}>
-                        {r.status === 'success' && <>ID: <span className="font-mono font-semibold text-gov-blue">{r.record_id}</span>{r.gu_name ? ` · ${r.gu_name}` : ''}{(r.functions_created ?? 0) > 0 ? <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'var(--badge-ok-bg)', color: 'var(--badge-ok-fg)' }}>+{r.functions_created} функц.</span> : null}</>}
+                        {r.status === 'success' && <>ID: <span className="font-mono font-semibold text-gov-blue">{r.record_id}</span>{r.gu_name ? ` · ${r.gu_name}` : ''}{(r as any).dept_name ? <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded font-semibold" style={{ background: 'rgba(55,114,255,0.12)', color: '#93b4ff' }}>Отдел: {(r as any).dept_name}</span> : null}{(r.functions_created ?? 0) > 0 ? <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'var(--badge-ok-bg)', color: 'var(--badge-ok-fg)' }}>+{r.functions_created} функц.</span> : null}</>}
                         {r.status === 'skipped' && r.skip_reason}
                         {r.status === 'error'   && r.error}
                       </p>
@@ -2081,11 +2118,11 @@ export default function ImportPage() {
       {previewResult && (
         <PreviewModal
           result={previewResult}
-          guId={savedEdits.get(previewResult.filename)?.guId || selectedOrgId || previewResult.gu_id || undefined}
+          guId={savedEdits.get(previewResult.filename)?.guId || previewResult.gu_id || selectedOrgId || undefined}
           orgs={orgs}
           levelType={levelType}
           departments={levelType === 'otdel' ? departments : undefined}
-          deptId={savedEdits.get(previewResult.filename)?.deptId || selectedDeptId || previewResult.suggested_dept_id || undefined}
+          deptId={savedEdits.get(previewResult.filename)?.deptId || previewResult.suggested_dept_id || selectedDeptId || undefined}
           savedData={savedEdits.get(previewResult.filename)?.data}
           excelRows={excelRows.get(previewResult.filename)}
           onClose={() => { setPreviewResult(null); editingDraftIdRef.current = null; setEditingDraftId(null) }}
@@ -2105,10 +2142,15 @@ export default function ImportPage() {
             }
           }}
           onSave={(data, guId, deptId) => {
+            const resolvedDeptId = deptId || selectedDeptId || undefined
+            const resolvedDeptName = (resolvedDeptId
+              ? departments.find(d => String(d.id) === resolvedDeptId)?.name
+              : undefined) || previewResult.suggested_dept_name || undefined
             setSavedEdits(prev => new Map(prev).set(previewResult.filename, {
               data,
               guId: guId || selectedOrgId || previewResult.gu_id || '',
-              deptId: deptId || selectedDeptId || undefined,
+              deptId: resolvedDeptId,
+              deptName: resolvedDeptName,
             }))
             // If editing a saved draft, persist parsed data + excel rows to backend
             const draftId = editingDraftIdRef.current
