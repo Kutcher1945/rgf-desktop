@@ -228,7 +228,7 @@ function CellSelect({ label, idValue, items, onChange, placeholder = '— не �
         <svg className="w-3 h-3 shrink-0 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       {open && (
-        <div className="absolute z-50 mt-0.5 w-full bg-white rounded-lg shadow-xl overflow-hidden" style={{ border: '1px solid #e9d5ff', minWidth: '180px' }}>
+        <div className="absolute z-50 mt-0.5 w-full rounded-lg shadow-xl overflow-hidden" style={{ border: '1px solid #e9d5ff', minWidth: '180px', background: '#fff', color: '#1f2937' }}>
           <div className="p-1.5 border-b border-purple-100">
             <input
               autoFocus
@@ -237,25 +237,26 @@ function CellSelect({ label, idValue, items, onChange, placeholder = '— не �
               onChange={e => setSearch(e.target.value)}
               placeholder="Поиск..."
               className="w-full text-[11px] px-2 py-1 rounded outline-none"
-              style={{ border: '1px solid #d8b4fe' }}
+              style={{ border: '1px solid #d8b4fe', color: '#1f2937', background: '#fff' }}
               onClick={e => e.stopPropagation()}
             />
           </div>
           <div className="max-h-52 overflow-y-auto">
             <div
-              className="px-3 py-1.5 text-[11px] cursor-pointer hover:bg-purple-50 text-gray-400"
+              className="px-3 py-1.5 text-[11px] cursor-pointer hover:bg-purple-50"
+              style={{ color: '#9ca3af' }}
               onMouseDown={() => { onChange('', undefined); setOpen(false); setSearch('') }}
             >{placeholder}</div>
             {filtered.map(x => (
               <div
                 key={x.id}
                 className="px-3 py-1.5 text-[11px] cursor-pointer hover:bg-purple-50 leading-snug"
-                style={x.id === idValue ? { background: '#f3e8ff', fontWeight: 500 } : {}}
+                style={x.id === idValue ? { background: '#f3e8ff', fontWeight: 500, color: '#6d28d9' } : { color: '#1f2937' }}
                 onMouseDown={() => { onChange(x.name, x.id); setOpen(false); setSearch('') }}
               >{x.name}</div>
             ))}
             {filtered.length === 0 && (
-              <div className="px-3 py-2 text-[11px] text-gray-400 text-center">Ничего не найдено</div>
+              <div className="px-3 py-2 text-[11px] text-center" style={{ color: '#9ca3af' }}>Ничего не найдено</div>
             )}
           </div>
         </div>
@@ -326,7 +327,7 @@ function TaskSelect({ value, tasks, empty, onChange }: {
         <svg className="w-3 h-3 shrink-0 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       {open && (
-        <div className="absolute z-50 mt-0.5 w-full bg-white rounded-lg shadow-xl overflow-hidden" style={{ border: '1px solid #e9d5ff', minWidth: '220px' }}>
+        <div className="absolute z-50 mt-0.5 w-full rounded-lg shadow-xl overflow-hidden" style={{ border: '1px solid #e9d5ff', minWidth: '220px', background: '#fff', color: '#1f2937' }}>
           <div className="p-1.5 border-b border-purple-100">
             <input
               autoFocus
@@ -335,22 +336,23 @@ function TaskSelect({ value, tasks, empty, onChange }: {
               onChange={e => setSearch(e.target.value)}
               placeholder="Поиск задачи..."
               className="w-full text-[11px] px-2 py-1 rounded outline-none"
-              style={{ border: '1px solid #d8b4fe' }}
+              style={{ border: '1px solid #d8b4fe', color: '#1f2937', background: '#fff' }}
               onClick={e => e.stopPropagation()}
             />
           </div>
           <div className="max-h-56 overflow-y-auto">
-            <div className="px-3 py-1.5 text-[11px] cursor-pointer hover:bg-purple-50 text-gray-400"
+            <div className="px-3 py-1.5 text-[11px] cursor-pointer hover:bg-purple-50"
+              style={{ color: '#9ca3af' }}
               onMouseDown={() => { onChange(''); setOpen(false); setSearch('') }}>— выберите задачу —</div>
             {filtered.map((t, idx) => (
               <div key={idx}
                 className="px-3 py-2 text-[11px] cursor-pointer hover:bg-purple-50 leading-snug"
-                style={t === value ? { background: '#f3e8ff', fontWeight: 500 } : {}}
+                style={t === value ? { background: '#f3e8ff', fontWeight: 500, color: '#6d28d9' } : { color: '#1f2937' }}
                 onMouseDown={() => { onChange(t); setOpen(false); setSearch('') }}
               >{t}</div>
             ))}
             {filtered.length === 0 && (
-              <div className="px-3 py-2 text-[11px] text-gray-400 text-center">Ничего не найдено</div>
+              <div className="px-3 py-2 text-[11px] text-center" style={{ color: '#9ca3af' }}>Ничего не найдено</div>
             )}
           </div>
         </div>
