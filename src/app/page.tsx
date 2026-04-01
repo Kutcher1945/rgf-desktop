@@ -1651,8 +1651,9 @@ export default function ImportPage() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b" style={{ background: 'var(--surface-0)', borderColor: 'var(--border)' }}>
-                          {['Документ', 'Организация', 'Данные', 'Статус', 'Дата', ''].map(h => (
-                            <th key={h} className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>{h}</th>
+                          {['ID', 'Документ', 'Данные', 'Статус', 'Дата', ''].map((h, i, arr) => (
+                            <th key={h} className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider"
+                                style={{ color: 'var(--text-3)', borderRight: i < arr.length - 1 ? '1px solid var(--border)' : undefined }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
@@ -1663,7 +1664,9 @@ export default function ImportPage() {
                           const missingRows = r.functions_count > (r.excel_rows?.length ?? 0)
                           const needsMeta = r.functions_count > 0 && (!r.has_function_meta || missingRows || incompleteRows.length > 0)
                           const isOpen = expandedDraftId === r.id
-                          const baseBg = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)'
+                          const baseBg = needsMeta
+                            ? (idx % 2 === 0 ? 'rgba(251,191,36,0.05)' : 'rgba(251,191,36,0.03)')
+                            : (idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)')
                           return (
                           <Fragment key={r.id}>
                           <tr className="transition-colors"
@@ -1672,19 +1675,32 @@ export default function ImportPage() {
                                 borderBottom: '1px solid var(--divide)',
                                 borderLeft: needsMeta ? '3px solid rgba(251,191,36,0.6)' : '3px solid transparent',
                               }}
-                              onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
+                              onMouseEnter={e => (e.currentTarget.style.background = needsMeta ? 'rgba(251,191,36,0.1)' : 'var(--surface-hover)')}
                               onMouseLeave={e => (e.currentTarget.style.background = baseBg)}>
-                            <td className="px-4 py-2.5 max-w-[220px]">
-                              <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-1)' }}>{r.filename}</p>
-                              {r.status === 'pending'
-                                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(251,191,36,0.12)', color: 'rgba(251,191,36,1)' }}>Черновик</span>
-                                : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399' }}>✓ Импортирован</span>
-                              }
+                            <td className="px-4 py-2.5 w-10 shrink-0" style={{ borderRight: '1px solid var(--border)' }}>
+                              <span className="font-mono text-[11px] font-bold px-2 py-1 rounded-md whitespace-nowrap"
+                                    style={{ background: 'rgba(55,114,255,0.12)', color: '#60a5fa' }}>
+                                #{r.id}
+                              </span>
                             </td>
-                            <td className="px-4 py-2.5">
-                              <span className="text-[11px] break-words leading-snug block" style={{ color: 'var(--text-2)', maxWidth: '260px' }}>{r.gu_name || r.gu_id || '—'}</span>
+                            <td className="px-4 py-2.5" style={{ borderRight: '1px solid var(--border)' }}>
+                              <p className="text-[11px] font-medium leading-snug" style={{ color: 'var(--text-1)' }}>{r.filename}</p>
+                              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                {r.status === 'pending'
+                                  ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(251,191,36,0.12)', color: 'rgba(251,191,36,1)' }}>Черновик</span>
+                                  : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399' }}>✓ Импортирован</span>
+                                }
+                                {r.was_edited && (
+                                  <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>Изменено оператором</span>
+                                )}
+                                {r.dept_id
+                                  ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(55,114,255,0.12)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.2)' }}>Отдел: {r.dept_name || r.dept_id}</span>
+                                  : <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}>Управление</span>
+                                }
+                              </div>
+                              <span className="text-[10px] leading-snug block mt-0.5" style={{ color: 'var(--text-3)' }}>{r.gu_name || r.gu_id || '—'}</span>
                             </td>
-                            <td className="px-4 py-2.5">
+                            <td className="px-4 py-2.5" style={{ borderRight: '1px solid var(--border)' }}>
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 {[
                                   { v: r.tasks_count,            label: 'зад', c: 'rgba(55,114,255,0.12)',  t: '#60a5fa' },
@@ -1780,7 +1796,7 @@ export default function ImportPage() {
                                 )}
                               </div>
                             </td>
-                            <td className="px-4 py-2.5">
+                            <td className="px-4 py-2.5" style={{ borderRight: '1px solid var(--border)' }}>
                               {(() => {
                                 const DRAFT_STATUSES: { value: DraftStatus; label: string; bg: string; color: string }[] = [
                                   { value: 'in_progress', label: 'В работе',     bg: 'rgba(251,191,36,0.12)',  color: 'rgba(251,191,36,1)'  },
@@ -1845,7 +1861,7 @@ export default function ImportPage() {
                                 )
                               })()}
                             </td>
-                            <td className="px-4 py-2.5 text-[11px] whitespace-nowrap" style={{ color: 'var(--text-4)' }}>
+                            <td className="px-4 py-2.5 text-[11px] whitespace-nowrap" style={{ color: 'var(--text-4)', borderRight: '1px solid var(--border)' }}>
                               {new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                             </td>
                             <td className="px-4 py-2.5">
@@ -2232,9 +2248,15 @@ export default function ImportPage() {
                                       }
                                       editingDraftIdRef.current = r.id
                                       setEditingDraftId(r.id)
+                                      // Always show dept selector when editing a draft
+                                      // (user may want to add/change dept even if record had none)
+                                      if (levelType !== 'otdel') setLevelType('otdel')
+                                      if (r.dept_id) setSelectedDeptId(String(r.dept_id))
                                       setPreviewResult({
                                         filename: r.filename, gu_id: r.gu_id || null, gu_name: r.gu_name || null,
                                         detected_source: null,
+                                        suggested_dept_id:   r.dept_id   ? String(r.dept_id)   : undefined,
+                                        suggested_dept_name: r.dept_name ? r.dept_name          : undefined,
                                         stats: { rights: r.rights_count, responsibilities: r.responsibilities_count, tasks: r.tasks_count, functions: r.functions_count },
                                         issues: [], warnings: [], can_import: false,
                                         data: r.data ?? { general_provisions: '', tasks: [], authorities_rights: [], authorities_responsibilities: [], functions: [], additions: '' },
@@ -2480,8 +2502,8 @@ export default function ImportPage() {
           result={previewResult}
           guId={savedEdits.get(previewResult.filename)?.guId || previewResult.gu_id || selectedOrgId || undefined}
           orgs={orgs}
-          levelType={levelType}
-          departments={levelType === 'otdel' ? departments : undefined}
+          levelType={editingDraftId !== null ? 'otdel' : levelType}
+          departments={departments.length > 0 ? departments : undefined}
           deptId={savedEdits.get(previewResult.filename)?.deptId || previewResult.suggested_dept_id || selectedDeptId || undefined}
           savedData={savedEdits.get(previewResult.filename)?.data}
           excelRows={excelRows.get(previewResult.filename)}
@@ -2503,16 +2525,17 @@ export default function ImportPage() {
           }}
           onSave={(data, guId, deptId) => {
             const resolvedDeptId = deptId || selectedDeptId || undefined
+            // Look up name: prefer departments list (correct GU), fall back to previewResult
             const resolvedDeptName = (resolvedDeptId
               ? departments.find(d => String(d.id) === resolvedDeptId)?.name
-              : undefined) || previewResult.suggested_dept_name || undefined
+              : undefined) || (resolvedDeptId === previewResult.suggested_dept_id ? previewResult.suggested_dept_name : undefined) || undefined
             setSavedEdits(prev => new Map(prev).set(previewResult.filename, {
               data,
               guId: guId || selectedOrgId || previewResult.gu_id || '',
               deptId: resolvedDeptId,
               deptName: resolvedDeptName,
             }))
-            // If editing a saved draft, persist parsed data + excel rows to backend
+            // If editing a saved draft, persist parsed data + dept + excel rows to backend
             const draftId = editingDraftIdRef.current
             if (draftId != null) {
               // Optimistic update — reflect new data in state immediately so
@@ -2531,7 +2554,17 @@ export default function ImportPage() {
                     }
                   : r
               ))
-              updateDraftData(draftId, data).then(() => {
+              // Also persist dept change so it's used on next submit
+              const deptPayload = resolvedDeptId !== undefined
+                ? { deptId: Number(resolvedDeptId), deptName: resolvedDeptName ?? '' }
+                : { deptId: null, deptName: '' }
+              updateDraftData(draftId, data, deptPayload).then(() => {
+                // Reflect new dept in local records state
+                setRecentRecords(prev => prev.map(rec =>
+                  rec.id === draftId
+                    ? { ...rec, dept_id: deptPayload.deptId ?? undefined, dept_name: deptPayload.deptName }
+                    : rec
+                ))
                 showToast('Черновик сохранён', 'warn')
               }).catch((e: Error) => { showToast(`Ошибка сохранения: ${e?.message ?? 'неизвестная ошибка'}`, 'err') })
               editingDraftIdRef.current = null

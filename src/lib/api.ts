@@ -458,11 +458,15 @@ export async function saveDraft(guId: string, data: PreviewData, filename?: stri
   return res.json()
 }
 
-export async function updateDraftData(draftId: number, data: PreviewData): Promise<{ success: boolean }> {
+export async function updateDraftData(draftId: number, data: PreviewData, dept?: { deptId?: number | null; deptName?: string }): Promise<{ success: boolean }> {
   const res = await tauriFetch(`${BASE}/api/rgf/update-draft-data/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ draft_id: draftId, ...data }),
+    body: JSON.stringify({
+      draft_id: draftId,
+      ...data,
+      ...(dept !== undefined ? { dept_id: dept.deptId ?? null, dept_name: dept.deptName ?? '' } : {}),
+    }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
