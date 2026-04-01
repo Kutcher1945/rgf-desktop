@@ -87,6 +87,11 @@ export default function RecordsPage() {
   const [records, setRecords]           = useState<ImportedRecord[]>([])
   const [selected, setSelected]         = useState<Set<number>>(new Set())
   const [expandedWarnings, setExpandedWarnings] = useState<Set<number>>(new Set())
+
+  // ── Filters ──
+  const [search, setSearch]             = useState('')
+  const [filterStatus, setFilterStatus] = useState<string>('all')   // all | success | pending | error | skipped
+  const [filterEdited, setFilterEdited] = useState(false)           // only edited
   const toggleWarning = (id: number) => setExpandedWarnings(prev => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
   })
@@ -151,6 +156,18 @@ export default function RecordsPage() {
   const ok          = records.filter(r => r.status === 'success').length
   const rate        = total > 0 ? Math.round((ok / total) * 100) : 0
   const lastImport  = records.length > 0 ? timeAgo(records[0].created_at) : '—'
+
+  // Filtered records
+  const filteredRecords = records.filter(r => {
+    if (filterStatus !== 'all' && r.status !== filterStatus) return false
+    if (filterEdited && !r.was_edited) return false
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      if (!r.filename.toLowerCase().includes(q) && !(r.gu_name ?? '').toLowerCase().includes(q)) return false
+    }
+    return true
+  })
+  const activeFilterCount = (filterStatus !== 'all' ? 1 : 0) + (filterEdited ? 1 : 0) + (search.trim() ? 1 : 0)
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
@@ -255,6 +272,76 @@ export default function RecordsPage() {
         )}
       </div>
 
+      {/* ── Filter bar ── */}
+      {tab === 'imports' && (
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Search */}
+          <div className="relative flex-1 min-w-[200px]">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={{ color: 'var(--text-4)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Поиск по файлу или организации..."
+              className="w-full pl-8 pr-8 py-2 rounded-xl text-sm outline-none transition-all"
+              style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', color: 'var(--text-1)' }}
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 transition-opacity" style={{ color: 'var(--text-3)' }}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            )}
+          </div>
+
+          {/* Status pills */}
+          <div className="flex items-center gap-1.5">
+            {([['all', 'Все'], ['pending', 'Черновик'], ['success', 'Успешно'], ['error', 'Ошибка'], ['skipped', 'Пропущен']] as [string, string][]).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setFilterStatus(val)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={filterStatus === val
+                  ? { background: 'rgba(55,114,255,0.2)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.35)' }
+                  : { background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border)' }}
+              >{label}</button>
+            ))}
+          </div>
+
+          {/* Edited toggle */}
+          <button
+            onClick={() => setFilterEdited(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+            style={filterEdited
+              ? { background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.35)' }
+              : { background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border)' }}
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            Только изменённые
+          </button>
+
+          {/* Active filter count + clear */}
+          {activeFilterCount > 0 && (
+            <button
+              onClick={() => { setSearch(''); setFilterStatus('all'); setFilterEdited(false) }}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              Сбросить ({activeFilterCount})
+            </button>
+          )}
+
+          {/* Results count */}
+          {(search || filterStatus !== 'all' || filterEdited) && (
+            <span className="text-xs ml-auto" style={{ color: 'var(--text-4)' }}>
+              {filteredRecords.length} из {records.length}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* ── IMPORTS TABLE ── */}
       {tab === 'imports' && (
         <div className="card overflow-hidden">
@@ -290,7 +377,9 @@ export default function RecordsPage() {
                 </tr>
               </thead>
               <tbody>
-                {records.map((r) => {
+                {filteredRecords.length === 0 ? (
+                  <tr><td colSpan={8} className="py-16 text-center text-sm" style={{ color: 'var(--text-4)' }}>Ничего не найдено по заданным фильтрам</td></tr>
+                ) : filteredRecords.map((r) => {
                   const isSelected = r.record_id != null && selected.has(r.record_id)
                   const sm = STATUS_META[r.status]
                   // Compute per-function issues from stored excel_rows

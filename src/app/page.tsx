@@ -162,6 +162,11 @@ export default function ImportPage() {
   }
   // Registry sub-tab
   const [adminRegSubTab, setAdminRegSubTab] = useState<'drafts' | 'registry'>('drafts')
+
+  // ── Draft filters ──
+  const [draftSearch, setDraftSearch]             = useState('')
+  const [draftFilterStatus, setDraftFilterStatus] = useState<string>('all')
+  const [draftFilterEdited, setDraftFilterEdited] = useState(false)
   const [submittingDraftId, setSubmittingDraftId] = useState<number | null>(null)
   const [regType, setRegType] = useState<3 | 4 | 5>(4)
   const [regItems, setRegItems] = useState<PositionDepartmentItem[]>([])
@@ -1749,25 +1754,84 @@ export default function ImportPage() {
                   { value: 'revision',    label: 'На доработке',  bg: 'rgba(239,68,68,0.12)',   color: '#f87171'             },
                   { value: 'approved',    label: 'Согласован',    bg: 'rgba(16,185,129,0.12)', color: '#34d399'             },
                 ]
-                const drafts = recentRecords.filter(r => r.status === 'pending' || r.was_edited)
-                if (!drafts.length) return (
+                const allDrafts = recentRecords.filter(r => r.status === 'pending' || r.was_edited)
+                const drafts = allDrafts.filter(r => {
+                  if (draftFilterStatus !== 'all' && r.draft_status !== draftFilterStatus) return false
+                  if (draftFilterEdited && !r.was_edited) return false
+                  if (draftSearch.trim()) {
+                    const q = draftSearch.toLowerCase()
+                    if (!r.filename.toLowerCase().includes(q) && !(r.gu_name ?? '').toLowerCase().includes(q)) return false
+                  }
+                  return true
+                })
+                const draftActiveFilters = (draftFilterStatus !== 'all' ? 1 : 0) + (draftFilterEdited ? 1 : 0) + (draftSearch.trim() ? 1 : 0)
+                if (!allDrafts.length) return (
                   <div className="card py-16 flex flex-col items-center gap-2">
                     <p className="text-sm font-semibold" style={{ color: 'var(--text-3)' }}>Нет черновиков</p>
                     <p className="text-xs" style={{ color: 'var(--text-4)' }}>Операторы ещё не сохранили ни одного документа</p>
                   </div>
                 )
                 return (
+                  <div className="space-y-3">
+                  {/* Filter bar */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="relative flex-1 min-w-[180px]">
+                      <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 pointer-events-none" style={{ color: 'var(--text-4)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      <input type="text" value={draftSearch} onChange={e => setDraftSearch(e.target.value)}
+                        placeholder="Поиск по файлу или организации..."
+                        className="w-full pl-7 pr-7 py-1.5 rounded-lg text-xs outline-none"
+                        style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', color: 'var(--text-1)' }} />
+                      {draftSearch && (
+                        <button onClick={() => setDraftSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100" style={{ color: 'var(--text-3)' }}>
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {([['all', 'Все'], ['in_progress', 'В работе'], ['review', 'На проверке'], ['revision', 'На доработке'], ['approved', 'Согласован']] as [string, string][]).map(([val, label]) => (
+                        <button key={val} onClick={() => setDraftFilterStatus(val)}
+                          className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
+                          style={draftFilterStatus === val
+                            ? { background: 'rgba(55,114,255,0.2)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.35)' }
+                            : { background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border)' }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => setDraftFilterEdited(v => !v)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
+                      style={draftFilterEdited
+                        ? { background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.35)' }
+                        : { background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border)' }}>
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                      Изменённые
+                    </button>
+                    {draftActiveFilters > 0 && (
+                      <button onClick={() => { setDraftSearch(''); setDraftFilterStatus('all'); setDraftFilterEdited(false) }}
+                        className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium"
+                        style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        Сбросить ({draftActiveFilters})
+                      </button>
+                    )}
+                    {draftActiveFilters > 0 && (
+                      <span className="text-[11px] ml-auto" style={{ color: 'var(--text-4)' }}>{drafts.length} из {allDrafts.length}</span>
+                    )}
+                  </div>
                   <div className="card overflow-hidden">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b" style={{ background: 'var(--surface-0)', borderColor: 'var(--border)' }}>
-                          {['Документ', 'Организация', 'Данные', 'Статус', 'Дата', 'Действия'].map(h => (
-                            <th key={h} className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>{h}</th>
+                          {['ID', 'Документ', 'Организация', 'Данные', 'Статус', 'Дата', 'Действия'].map((h, i, arr) => (
+                            <th key={h} className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider"
+                                style={{ color: 'var(--text-3)', borderRight: i < arr.length - 1 ? '1px solid var(--border)' : undefined }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {drafts.map((r, idx) => {
+                        {drafts.length === 0
+                          ? <tr><td colSpan={7} className="py-12 text-center text-xs" style={{ color: 'var(--text-4)' }}>Ничего не найдено по заданным фильтрам</td></tr>
+                          : drafts.map((r, idx) => {
                           const cur = DRAFT_STATUSES.find(s => s.value === r.draft_status) ?? DRAFT_STATUSES[0]
                           const ADMIN_REQUIRED: { key: keyof ExcelFunctionRow; label: string }[] = [
                             { key: 'function_name_kz',        label: 'Название (каз.)'        },
@@ -1803,7 +1867,13 @@ export default function ImportPage() {
                                 }}
                                 onMouseEnter={e => (e.currentTarget.style.background = needsMeta ? 'rgba(251,191,36,0.1)' : 'var(--surface-hover)')}
                                 onMouseLeave={e => (e.currentTarget.style.background = baseBg)}>
-                              <td className="px-4 py-2.5 max-w-[200px]">
+                              <td className="px-4 py-2.5 w-10 shrink-0" style={{ borderRight: '1px solid var(--border)' }}>
+                                <span className="font-mono text-[11px] font-bold px-2 py-1 rounded-md whitespace-nowrap"
+                                      style={{ background: 'rgba(55,114,255,0.12)', color: '#60a5fa' }}>
+                                  #{r.id}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 max-w-[200px]" style={{ borderRight: '1px solid var(--border)' }}>
                                 <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-1)' }}>{r.filename}</p>
                                 <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                                   {r.status === 'pending'
@@ -1819,10 +1889,10 @@ export default function ImportPage() {
                                   }
                                 </div>
                               </td>
-                              <td className="px-4 py-2.5">
+                              <td className="px-4 py-2.5" style={{ borderRight: '1px solid var(--border)' }}>
                                 <span className="text-[11px] break-words leading-snug block" style={{ color: 'var(--text-2)', maxWidth: '220px' }}>{r.gu_name || r.gu_id || '—'}</span>
                               </td>
-                              <td className="px-4 py-2.5">
+                              <td className="px-4 py-2.5" style={{ borderRight: '1px solid var(--border)' }}>
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   {[
                                     { v: r.tasks_count,     label: 'зад', c: 'rgba(55,114,255,0.12)',   t: '#60a5fa' },
@@ -1854,7 +1924,7 @@ export default function ImportPage() {
                                   )}
                                 </div>
                               </td>
-                              <td className="px-4 py-2.5">
+                              <td className="px-4 py-2.5" style={{ borderRight: '1px solid var(--border)' }}>
                                 <div className="relative inline-flex items-center">
                                   <select
                                     value={r.draft_status ?? 'in_progress'}
@@ -1880,7 +1950,7 @@ export default function ImportPage() {
                                   </svg>
                                 </div>
                               </td>
-                              <td className="px-4 py-2.5 text-[11px] whitespace-nowrap" style={{ color: 'var(--text-4)' }}>
+                              <td className="px-4 py-2.5 text-[11px] whitespace-nowrap" style={{ color: 'var(--text-4)', borderRight: '1px solid var(--border)' }}>
                                 {new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                               </td>
                               <td className="px-4 py-2.5">
@@ -1976,7 +2046,7 @@ export default function ImportPage() {
                             {/* ── Collapsible missing-fields detail row ── */}
                             {needsMeta && isWarnOpen && (
                               <tr style={{ borderBottom: '1px solid var(--divide)', borderLeft: '3px solid rgba(251,191,36,0.5)' }}>
-                                <td colSpan={6} className="px-5 pb-3 pt-0" style={{ background: 'rgba(251,191,36,0.04)' }}>
+                                <td colSpan={7} className="px-5 pb-3 pt-0" style={{ background: 'rgba(251,191,36,0.04)' }}>
                                   {!r.has_function_meta ? (
                                     <p className="text-xs py-2" style={{ color: '#f59e0b' }}>
                                       Метаданные функций не заполнены. Откройте черновик и раскройте каждую функцию чтобы заполнить поля.
@@ -2008,6 +2078,7 @@ export default function ImportPage() {
                         })}
                       </tbody>
                     </table>
+                  </div>
                   </div>
                 )
               })()}
