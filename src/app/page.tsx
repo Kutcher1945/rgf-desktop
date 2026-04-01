@@ -188,6 +188,8 @@ export default function ImportPage() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [selectedDeptId, setSelectedDeptId] = useState('')
   const [deptsLoading, setDeptsLoading] = useState(false)
+  // When opening a draft for edit, store the dept name so the useEffect can resolve it to planning_id after loading
+  const pendingDeptNameRef = useRef<string>('')
   const [deptDropOpen, setDeptDropOpen] = useState(false)
   const [deptSearch, setDeptSearch] = useState('')
   const deptDropRef = useRef<HTMLDivElement>(null)
@@ -286,7 +288,16 @@ export default function ImportPage() {
     setDeptsLoading(true)
     setSelectedDeptId('')
     getDepartments(selectedOrgId)
-      .then(setDepartments)
+      .then(depts => {
+        setDepartments(depts)
+        if (pendingDeptNameRef.current) {
+          const name = pendingDeptNameRef.current
+          pendingDeptNameRef.current = ''
+          const found = depts.find(d => d.name === name)
+            || depts.find(d => d.name.toLowerCase().includes(name.toLowerCase().slice(0, 30)))
+          if (found) setSelectedDeptId(String(found.id))
+        }
+      })
       .catch(() => setDepartments([]))
       .finally(() => setDeptsLoading(false))
   }, [levelType, selectedOrgId])
@@ -1896,6 +1907,19 @@ export default function ImportPage() {
                                   }
                                   editingDraftIdRef.current = r.id
                                   setEditingDraftId(r.id)
+                                  // Set dept: store name for resolution after depts load, or resolve from already-loaded list
+                                  if (r.dept_name) {
+                                    const alreadyLoaded = selectedOrgId === r.gu_id && levelType === 'otdel' && departments.length > 0
+                                    if (alreadyLoaded) {
+                                      const found = departments.find(d => d.name === r.dept_name)
+                                        || departments.find(d => d.name.toLowerCase().includes((r.dept_name ?? '').toLowerCase().slice(0, 30)))
+                                      if (found) setSelectedDeptId(String(found.id))
+                                    } else {
+                                      pendingDeptNameRef.current = r.dept_name
+                                    }
+                                  }
+                                  if (levelType !== 'otdel') setLevelType('otdel')
+                                  if (r.gu_id && r.gu_id !== selectedOrgId) setSelectedOrgId(r.gu_id)
                                   setPreviewResult(preview)
                                 }}
                                 className="text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all"
@@ -2249,9 +2273,18 @@ export default function ImportPage() {
                                       editingDraftIdRef.current = r.id
                                       setEditingDraftId(r.id)
                                       // Always show dept selector when editing a draft
-                                      // (user may want to add/change dept even if record had none)
+                                      if (r.dept_name) {
+                                        const alreadyLoaded = selectedOrgId === r.gu_id && levelType === 'otdel' && departments.length > 0
+                                        if (alreadyLoaded) {
+                                          const found = departments.find(d => d.name === r.dept_name)
+                                            || departments.find(d => d.name.toLowerCase().includes((r.dept_name ?? '').toLowerCase().slice(0, 30)))
+                                          if (found) setSelectedDeptId(String(found.id))
+                                        } else {
+                                          pendingDeptNameRef.current = r.dept_name
+                                        }
+                                      }
                                       if (levelType !== 'otdel') setLevelType('otdel')
-                                      if (r.dept_id) setSelectedDeptId(String(r.dept_id))
+                                      if (r.gu_id && r.gu_id !== selectedOrgId) setSelectedOrgId(r.gu_id)
                                       setPreviewResult({
                                         filename: r.filename, gu_id: r.gu_id || null, gu_name: r.gu_name || null,
                                         detected_source: null,
