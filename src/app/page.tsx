@@ -6,6 +6,7 @@ import {
   importParsed, saveDraft, submitDraft, previewDocument, getRecords, getAuditLog,
   uploadDepartmentExcel, getDepartmentExcelTemplateUrl, parseExcelFile,
   browseRecords, updateDraftStatus, updateDraftExcel, updateDraftData, getDicts,
+  deleteDraft, restoreDraft,
 } from '@/lib/api'
 import type { Department, Org, ImportResult, PreviewResult, PreviewData, ImportedRecord, AuditLogEntry, ExcelFunctionRow, PositionDepartmentItem, DraftStatus, Dicts, DictItem } from '@/lib/api'
 import PreviewModal from '@/components/PreviewModal'
@@ -167,6 +168,9 @@ export default function ImportPage() {
   const [draftSearch, setDraftSearch]             = useState('')
   const [draftFilterStatus, setDraftFilterStatus] = useState<string>('all')
   const [draftFilterEdited, setDraftFilterEdited] = useState(false)
+  const [showDeletedDrafts, setShowDeletedDrafts] = useState(false)
+  const [deletedRecords, setDeletedRecords]       = useState<ImportedRecord[]>([])
+  const [loadingDeleted, setLoadingDeleted]       = useState(false)
   const [submittingDraftId, setSubmittingDraftId] = useState<number | null>(null)
   const [regType, setRegType] = useState<3 | 4 | 5>(4)
   const [regItems, setRegItems] = useState<PositionDepartmentItem[]>([])
@@ -1722,6 +1726,7 @@ export default function ImportPage() {
           {activeTab === 'registry' && userRole === 'admin' && (
             <div className="space-y-3">
               {/* Top-level sub-tabs: Черновики / Реестр */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-1 p-0.5 rounded-lg self-start" style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
                 {([
                   { id: 'drafts',   label: 'Черновики операторов' },
@@ -1745,6 +1750,91 @@ export default function ImportPage() {
                   </button>
                 ))}
               </div>
+              {adminRegSubTab === 'drafts' && (
+                <button
+                  onClick={async () => {
+                    const next = !showDeletedDrafts
+                    setShowDeletedDrafts(next)
+                    if (next) {
+                      setLoadingDeleted(true)
+                      try { const r = await getRecords(true); setDeletedRecords(r.records) }
+                      catch {} finally { setLoadingDeleted(false) }
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all self-start"
+                  style={showDeletedDrafts
+                    ? { background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }
+                    : { background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border)' }}
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path strokeLinecap="round" strokeLinejoin="round" d="M19 6l-1 14H6L5 6m5 0V4h4v2"/></svg>
+                  {showDeletedDrafts ? 'Скрыть удалённые' : 'Удалённые'}
+                  {deletedRecords.length > 0 && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold" style={{ background: 'rgba(239,68,68,0.2)', color: '#f87171' }}>{deletedRecords.length}</span>}
+                </button>
+              )}
+              </div>
+
+              {/* ── Deleted drafts panel ── */}
+              {adminRegSubTab === 'drafts' && showDeletedDrafts && (
+                <div className="card overflow-hidden" style={{ border: '1px solid rgba(239,68,68,0.2)' }}>
+                  <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: 'rgba(239,68,68,0.06)', borderBottom: '1px solid rgba(239,68,68,0.15)' }}>
+                    <svg className="w-3.5 h-3.5" style={{ color: '#f87171' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path strokeLinecap="round" strokeLinejoin="round" d="M19 6l-1 14H6L5 6m5 0V4h4v2"/></svg>
+                    <span className="text-[11px] font-semibold" style={{ color: '#f87171' }}>Удалённые черновики</span>
+                    <span className="text-[10px]" style={{ color: 'var(--text-4)' }}>— можно восстановить</span>
+                  </div>
+                  {loadingDeleted ? (
+                    <div className="py-8 flex justify-center"><div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border-md)', borderTopColor: '#f87171' }} /></div>
+                  ) : deletedRecords.length === 0 ? (
+                    <p className="py-8 text-center text-xs" style={{ color: 'var(--text-4)' }}>Нет удалённых черновиков</p>
+                  ) : (
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr style={{ background: 'var(--surface-0)', borderBottom: '1px solid var(--border)' }}>
+                          {['ID', 'Документ', 'Организация', 'Дата удаления', ''].map((h, i, arr) => (
+                            <th key={h} className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider"
+                                style={{ color: 'var(--text-3)', borderRight: i < arr.length - 1 ? '1px solid var(--border)' : undefined }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deletedRecords.map((r, idx) => (
+                          <tr key={r.id} style={{ background: idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-0)', borderBottom: '1px solid var(--divide)' }}>
+                            <td className="px-4 py-2.5" style={{ borderRight: '1px solid var(--border)' }}>
+                              <span className="font-mono text-[11px] font-bold px-2 py-1 rounded-md" style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171' }}>#{r.id}</span>
+                            </td>
+                            <td className="px-4 py-2.5 max-w-[220px]" style={{ borderRight: '1px solid var(--border)' }}>
+                              <p className="text-[11px] font-medium truncate" style={{ color: 'var(--text-2)' }}>{r.filename}</p>
+                            </td>
+                            <td className="px-4 py-2.5" style={{ borderRight: '1px solid var(--border)' }}>
+                              <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>{r.gu_name || r.gu_id || '—'}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-[11px] whitespace-nowrap" style={{ color: 'var(--text-4)', borderRight: '1px solid var(--border)' }}>
+                              {new Date(r.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await restoreDraft(r.id)
+                                    setDeletedRecords(prev => prev.filter(x => x.id !== r.id))
+                                    await refreshRecords()
+                                  } catch (e: any) { alert('Ошибка: ' + e?.message) }
+                                }}
+                                className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all"
+                                style={{ background: 'rgba(16,185,129,0.10)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}
+                                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(16,185,129,0.20)' }}
+                                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(16,185,129,0.10)' }}
+                              >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+                                Восстановить
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
 
               {/* ── Drafts sub-tab ── */}
               {adminRegSubTab === 'drafts' && (() => {
@@ -2039,6 +2129,26 @@ export default function ImportPage() {
                                       </a>
                                     ) : null
                                   )}
+                                  {/* Delete button */}
+                                  <button
+                                    onClick={async () => {
+                                      if (!confirm('Удалить этот черновик?')) return
+                                      try {
+                                        await deleteDraft(r.id)
+                                        setRecentRecords(prev => prev.filter(rec => rec.id !== r.id))
+                                        setDeletedRecords(prev => [r, ...prev])
+                                      } catch (e: any) {
+                                        alert('Ошибка: ' + e?.message)
+                                      }
+                                    }}
+                                    title="Удалить"
+                                    className="text-[11px] font-medium px-2 py-1 rounded-lg transition-all"
+                                    style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}
+                                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.18)' }}
+                                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.08)' }}
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path strokeLinecap="round" strokeLinejoin="round" d="M19 6l-1 14H6L5 6m5 0V4h4v2"/></svg>
+                                  </button>
                                 </div>
                               </td>
                             </tr>

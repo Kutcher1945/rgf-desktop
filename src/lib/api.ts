@@ -125,6 +125,7 @@ export interface ImportedRecord {
   error?: string
   url?: string
   was_edited: boolean
+  is_deleted: boolean
   tasks_count: number
   rights_count: number
   responsibilities_count: number
@@ -357,8 +358,9 @@ export async function importDocuments(files: File[], guId?: string, departmentId
   return res.json()
 }
 
-export async function getRecords(): Promise<RecordsResponse> {
-  const res = await tauriFetch(`${BASE}/api/rgf/records/`, { headers: authHeaders() })
+export async function getRecords(deleted = false): Promise<RecordsResponse> {
+  const url = deleted ? `${BASE}/api/rgf/records/?deleted=1` : `${BASE}/api/rgf/records/`
+  const res = await tauriFetch(url, { headers: authHeaders() })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
@@ -505,6 +507,26 @@ export async function deleteRecords(recordIds: number[]): Promise<DeleteResponse
     const err = await res.json().catch(() => ({}))
     throw new Error((err as any).error || `HTTP ${res.status}`)
   }
+  return res.json()
+}
+
+export async function deleteDraft(draftId: number): Promise<{ success: boolean }> {
+  const res = await tauriFetch(`${BASE}/api/rgf/delete-draft/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ draft_id: draftId }),
+  })
+  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err as any).error || `HTTP ${res.status}`) }
+  return res.json()
+}
+
+export async function restoreDraft(draftId: number): Promise<{ success: boolean }> {
+  const res = await tauriFetch(`${BASE}/api/rgf/restore-draft/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ draft_id: draftId }),
+  })
+  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err as any).error || `HTTP ${res.status}`) }
   return res.json()
 }
 
