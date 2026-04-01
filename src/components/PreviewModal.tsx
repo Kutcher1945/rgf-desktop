@@ -74,6 +74,24 @@ const SECTION_CONFIG = [
 
 type ListKey = 'tasks' | 'authorities_rights' | 'authorities_responsibilities' | 'functions'
 
+const REQUIRED_FN_FIELDS: { key: keyof ExcelFunctionRow; label: string }[] = [
+  { key: 'function_name_kz',        label: 'Название (каз.)'   },
+  { key: 'function_type',           label: 'Тип функции'       },
+  { key: 'task_name',               label: 'Задача'            },
+  { key: 'activity_area_name',      label: 'Сфера деятельности'},
+  { key: 'sub_activity_area_name',  label: 'Подсфера'          },
+  { key: 'functional_group_name',   label: 'Функц. группа'     },
+  { key: 'functional_subgroup_name',label: 'Функц. подгруппа'  },
+  { key: 'structural_element',      label: 'Структурный эл.'   },
+  { key: 'law_ru',                  label: 'Законодательство'  },
+  { key: 'digital_maturity',        label: 'Цифровая зрелость' },
+]
+function getMissingFnFields(row: ExcelFunctionRow): string[] {
+  return REQUIRED_FN_FIELDS
+    .filter(f => !String((row as unknown as Record<string, unknown>)[f.key as string] ?? '').trim())
+    .map(f => f.label)
+}
+
 /** Find the best-matching excel row for a given function text.
  *  fnIndex: position of the function in the docx list — used as a tiebreaker
  *  when multiple Excel rows have the same word-overlap score (e.g. all functions
@@ -927,13 +945,22 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
                       const showExpandToggle = key === 'functions'
                       const panelRow = excelRow ?? metaRow
                       const isExpanded = expandedFns.has(i)
+                      const missingFields = (showExpandToggle && panelRow) ? getMissingFnFields(panelRow) : []
+                      const missingCount = missingFields.length
                       return (
                       <div key={i} className="group">
                         <div className="flex items-start gap-3 px-4 py-2">
-                          <span
-                            className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold mt-2"
-                            style={{ backgroundColor: accent + '15', color: accent }}
-                          >{i + 1}</span>
+                          <div className="shrink-0 flex flex-col items-center gap-0.5 mt-2">
+                            <span
+                              className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold"
+                              style={{ backgroundColor: missingCount > 0 ? 'rgba(251,191,36,0.2)' : accent + '15', color: missingCount > 0 ? '#b45309' : accent }}
+                            >{i + 1}</span>
+                            {missingCount > 0 && (
+                              <span className="text-[8px] font-bold leading-none" style={{ color: '#b45309' }} title={`${missingCount} полей не заполнено`}>
+                                -{missingCount}
+                              </span>
+                            )}
+                          </div>
                           <AutoResizeTextarea
                             value={item}
                             onChange={v => updateItem(key, i, v)}
@@ -943,9 +970,12 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
                           {showExpandToggle && (
                             <button
                               onClick={() => toggleFn(i, item)}
-                              title={isExpanded ? 'Свернуть детали' : excelRow ? 'Показать детали Excel' : 'Заполнить поля функции'}
+                              title={isExpanded ? 'Свернуть детали' : missingCount > 0 ? `Заполнить поля (${missingCount} пусто)` : excelRow ? 'Показать детали Excel' : 'Заполнить поля функции'}
                               className="shrink-0 w-5 h-5 rounded flex items-center justify-center transition-all mt-2"
-                              style={{ color: isExpanded ? '#7c3aed' : '#a78bfa', background: isExpanded ? '#ede9fe' : 'transparent' }}
+                              style={{
+                                color: isExpanded ? '#7c3aed' : missingCount > 0 ? '#d97706' : '#a78bfa',
+                                background: isExpanded ? '#ede9fe' : missingCount > 0 ? 'rgba(251,191,36,0.15)' : 'transparent',
+                              }}
                             >
                               <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                 {isExpanded
@@ -961,6 +991,17 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
                             <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                           </button>
                         </div>
+                        {/* Missing fields row — shown when collapsed and fields are incomplete */}
+                        {showExpandToggle && !isExpanded && missingFields.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap px-4 pb-2 ml-8">
+                            {missingFields.map(label => (
+                              <span key={label} className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                                    style={{ background: 'rgba(251,191,36,0.15)', color: '#b45309', border: '1px solid rgba(251,191,36,0.3)' }}>
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {/* Editable metadata panel — excel-matched or user-entered defaults */}
                         {showExpandToggle && isExpanded && panelRow && (
                           <ExcelMetaPanel

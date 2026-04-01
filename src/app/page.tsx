@@ -1746,61 +1746,78 @@ export default function ImportPage() {
                                       <div
                                         className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-lg overflow-hidden"
                                         style={{
-                                          minWidth: 280,
+                                          minWidth: 340,
                                           background: 'var(--surface-1)',
                                           border: '1px solid rgba(251,191,36,0.35)',
                                           boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
                                         }}
                                       >
-                                        <div className="px-3 py-2 flex items-center gap-2" style={{ background: 'rgba(251,191,36,0.12)', borderBottom: '1px solid rgba(251,191,36,0.2)' }}>
-                                          <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="#f59e0b" strokeWidth={2.5}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
-                                          </svg>
-                                          <span className="text-[11px] font-semibold" style={{ color: '#f59e0b' }}>
-                                            {!r.has_function_meta || missingRows ? 'Метаданные функций не заполнены' : 'Незаполненные поля'}
-                                          </span>
+                                        {/* Header with summary */}
+                                        <div className="px-3 py-2.5 flex items-center justify-between gap-3" style={{ background: 'rgba(251,191,36,0.12)', borderBottom: '1px solid rgba(251,191,36,0.2)' }}>
+                                          <div className="flex items-center gap-2">
+                                            <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="#f59e0b" strokeWidth={2.5}>
+                                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                                            </svg>
+                                            <span className="text-[11px] font-semibold" style={{ color: '#f59e0b' }}>
+                                              {!r.has_function_meta || missingRows ? 'Метаданные не заполнены' : `${incompleteRows.length} функц. с пропусками`}
+                                            </span>
+                                          </div>
+                                          {!missingRows && !(!r.has_function_meta) && (
+                                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(251,191,36,0.2)', color: '#b45309' }}>
+                                              {incompleteRows.reduce((s, x) => s + x.missing.length, 0)} полей пусто
+                                            </span>
+                                          )}
                                         </div>
 
                                         {!r.has_function_meta || missingRows ? (
-                                          <div className="px-3 py-2.5">
-                                            <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                                              Ни одна функция не имеет метаданных. Нажмите «Редактировать» и заполните поля для каждой функции.
+                                          <div className="px-3 py-3">
+                                            <p className="text-[11px] mb-2.5" style={{ color: 'var(--text-3)' }}>
+                                              Метаданные отсутствуют для всех {r.functions_count} функций. Откройте редактор и заполните обязательные поля.
                                             </p>
-                                            <div className="mt-2 flex flex-wrap gap-1">
+                                            <p className="text-[9.5px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-4)' }}>Обязательные поля</p>
+                                            <div className="flex flex-wrap gap-1">
                                               {REQUIRED_META.map(f => (
                                                 <span key={f.key as string} className="text-[10px] px-1.5 py-0.5 rounded"
-                                                      style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171' }}>
+                                                      style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
                                                   {f.label}
                                                 </span>
                                               ))}
                                             </div>
                                           </div>
                                         ) : (
-                                          <div className="max-h-64 overflow-y-auto" style={{ borderTop: '1px solid var(--divide)' }}>
-                                            {incompleteRows.map(({ row: fnRow, i: fnIdx, missing }) => (
-                                              <div key={fnIdx} className="px-3 py-2">
-                                                <p className="text-[10px] font-semibold mb-1.5 truncate" style={{ color: 'var(--text-2)' }}>
-                                                  <span className="mr-1.5 px-1 py-0.5 rounded text-[9px]" style={{ background: 'rgba(167,139,250,0.2)', color: '#a78bfa' }}>{fnIdx + 1}</span>
-                                                  {fnRow.function_name_ru || '(без названия)'}
-                                                </p>
+                                          <div className="max-h-72 overflow-y-auto divide-y" style={{ borderColor: 'var(--divide)' }}>
+                                            {incompleteRows.map(({ row: fnRow, i: fnIdx, missing }) => {
+                                              const total = REQUIRED_META.length
+                                              const filled = total - missing.length
+                                              const pct = Math.round((filled / total) * 100)
+                                              return (
+                                              <div key={fnIdx} className="px-3 py-2.5">
+                                                <div className="flex items-start gap-2 mb-2">
+                                                  <span className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold mt-0.5"
+                                                        style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>{fnIdx + 1}</span>
+                                                  <p className="text-[10.5px] font-medium leading-snug flex-1" style={{ color: 'var(--text-2)' }}>
+                                                    {fnRow.function_name_ru || '(без названия)'}
+                                                  </p>
+                                                </div>
+                                                {/* Progress bar */}
+                                                <div className="flex items-center gap-2 mb-1.5">
+                                                  <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: 'var(--surface-0)' }}>
+                                                    <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: pct < 50 ? '#ef4444' : pct < 80 ? '#f59e0b' : '#10b981' }} />
+                                                  </div>
+                                                  <span className="text-[9px] font-semibold shrink-0" style={{ color: 'var(--text-4)' }}>{filled}/{total}</span>
+                                                </div>
                                                 <div className="flex flex-wrap gap-1">
                                                   {missing.map(f => (
                                                     <span key={f.key as string} className="text-[10px] px-1.5 py-0.5 rounded"
-                                                          style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171' }}>
+                                                          style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
                                                       {f.label}
                                                     </span>
                                                   ))}
                                                 </div>
                                               </div>
-                                            ))}
+                                            )})}
                                           </div>
                                         )}
-
-                                        <div className="px-3 py-2" style={{ borderTop: '1px solid var(--divide)' }}>
-                                          <p className="text-[10px]" style={{ color: 'var(--text-4)' }}>
-                                            Нажмите «Редактировать» чтобы заполнить поля
-                                          </p>
-                                        </div>
                                       </div>
                                     )}
                                   </div>
