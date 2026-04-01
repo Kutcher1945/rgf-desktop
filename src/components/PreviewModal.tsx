@@ -194,14 +194,29 @@ function CellSelect({ label, idValue, items, onChange, placeholder = '— не �
   const selectedItem = items.find(x => x.id === idValue)
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [dropRect, setDropRect] = useState<{ top: number; left: number; width: number } | null>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const dropRef = useRef<HTMLDivElement>(null)
+
+  const openDrop = () => {
+    if (buttonRef.current) {
+      const r = buttonRef.current.getBoundingClientRect()
+      const spaceBelow = window.innerHeight - r.bottom
+      const dropH = Math.min(300, window.innerHeight * 0.45)
+      const top = spaceBelow >= dropH ? r.bottom + 2 : r.top - dropH - 2
+      setDropRect({ top, left: r.left, width: r.width })
+    }
+    setOpen(true); setSearch('')
+  }
 
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false); setSearch('')
-      }
+      const t = e.target as Node
+      if (
+        buttonRef.current && !buttonRef.current.contains(t) &&
+        dropRef.current   && !dropRef.current.contains(t)
+      ) { setOpen(false); setSearch('') }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -212,13 +227,14 @@ function CellSelect({ label, idValue, items, onChange, placeholder = '— не �
     : items
 
   return (
-    <div ref={containerRef} className="relative">
+    <div className="relative">
       <span className={LABEL_STYLE} style={{ color: empty ? LABEL_EMPTY_COLOR : LABEL_COLOR }}>
         {label} *{empty && <EmptyDot />}
       </span>
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => { setOpen(o => !o); setSearch('') }}
+        onClick={open ? () => { setOpen(false); setSearch('') } : openDrop}
         className={CELL_INPUT + ' flex items-center gap-1 text-left w-full focus:border-purple-400'}
         style={empty ? CELL_EMPTY_STYLE : CELL_STYLE}
       >
@@ -227,8 +243,23 @@ function CellSelect({ label, idValue, items, onChange, placeholder = '— не �
         </span>
         <svg className="w-3 h-3 shrink-0 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
-      {open && (
-        <div className="absolute z-50 mt-0.5 w-full rounded-lg shadow-xl overflow-hidden" style={{ border: '1px solid #e9d5ff', minWidth: '180px', background: '#fff', color: '#1f2937' }}>
+      {open && dropRect && (
+        <div
+          ref={dropRef}
+          style={{
+            position: 'fixed',
+            top: dropRect.top,
+            left: dropRect.left,
+            width: Math.max(dropRect.width, 260),
+            zIndex: 9999,
+            border: '1px solid #e9d5ff',
+            borderRadius: 8,
+            boxShadow: '0 8px 32px rgba(109,40,217,0.15)',
+            background: '#fff',
+            color: '#1f2937',
+            overflow: 'hidden',
+          }}
+        >
           <div className="p-1.5 border-b border-purple-100">
             <input
               autoFocus
@@ -296,14 +327,31 @@ function TaskSelect({ value, tasks, empty, onChange }: {
 }) {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [dropRect, setDropRect] = useState<{ top: number; left: number; width: number } | null>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const dropRef = useRef<HTMLDivElement>(null)
+
+  const openDrop = () => {
+    if (buttonRef.current) {
+      const r = buttonRef.current.getBoundingClientRect()
+      // prefer opening below; if not enough room, open above
+      const spaceBelow = window.innerHeight - r.bottom
+      const dropH = Math.min(340, window.innerHeight * 0.45)
+      const top = spaceBelow >= dropH ? r.bottom + 2 : r.top - dropH - 2
+      setDropRect({ top, left: r.left, width: r.width })
+    }
+    setOpen(true)
+    setSearch('')
+  }
 
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false); setSearch('')
-      }
+      const t = e.target as Node
+      if (
+        buttonRef.current && !buttonRef.current.contains(t) &&
+        dropRef.current   && !dropRef.current.contains(t)
+      ) { setOpen(false); setSearch('') }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -314,10 +362,11 @@ function TaskSelect({ value, tasks, empty, onChange }: {
     : tasks
 
   return (
-    <div ref={containerRef} className="relative">
+    <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => { setOpen(o => !o); setSearch('') }}
+        onClick={open ? () => { setOpen(false); setSearch('') } : openDrop}
         className={CELL_INPUT + ' flex items-center gap-1 text-left w-full focus:border-purple-400'}
         style={empty ? CELL_EMPTY_STYLE : CELL_STYLE}
       >
@@ -326,8 +375,23 @@ function TaskSelect({ value, tasks, empty, onChange }: {
         </span>
         <svg className="w-3 h-3 shrink-0 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
-      {open && (
-        <div className="absolute z-50 mt-0.5 w-full rounded-lg shadow-xl overflow-hidden" style={{ border: '1px solid #e9d5ff', minWidth: '220px', background: '#fff', color: '#1f2937' }}>
+      {open && dropRect && (
+        <div
+          ref={dropRef}
+          style={{
+            position: 'fixed',
+            top: dropRect.top,
+            left: dropRect.left,
+            width: Math.max(dropRect.width, 320),
+            zIndex: 9999,
+            border: '1px solid #e9d5ff',
+            borderRadius: 8,
+            boxShadow: '0 8px 32px rgba(109,40,217,0.15)',
+            background: '#fff',
+            color: '#1f2937',
+            overflow: 'hidden',
+          }}
+        >
           <div className="p-1.5 border-b border-purple-100">
             <input
               autoFocus

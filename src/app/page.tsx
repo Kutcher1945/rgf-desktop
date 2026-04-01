@@ -192,6 +192,15 @@ export default function ImportPage() {
   const [deptSearch, setDeptSearch] = useState('')
   const deptDropRef = useRef<HTMLDivElement>(null)
   const [excelUploading, setExcelUploading] = useState(false)
+
+  // ── Per-file GU/dept inline editor ──
+  const [fileEditingOrg, setFileEditingOrg]         = useState<string | null>(null)
+  const [fileEditOrgId, setFileEditOrgId]           = useState('')
+  const [fileEditOrgSearch, setFileEditOrgSearch]   = useState('')
+  const [fileEditDepts, setFileEditDepts]           = useState<Department[]>([])
+  const [fileEditDeptId, setFileEditDeptId]         = useState('')
+  const [fileEditDeptSearch, setFileEditDeptSearch] = useState('')
+  const [fileEditDeptsLoading, setFileEditDeptsLoading] = useState(false)
   const [excelUploadResult, setExcelUploadResult] = useState<{ rows: number } | null>(null)
   const excelInputRef = useRef<HTMLInputElement>(null)
 
@@ -287,7 +296,10 @@ export default function ImportPage() {
       if (autoPreviewing.current.has(file.name)) return
       autoPreviewing.current.add(file.name)
       previewDocument(file)
-        .then(result => setPreviewCache(prev => new Map(prev).set(file.name, result)))
+        .then(result => {
+          setPreviewCache(prev => new Map(prev).set(file.name, result))
+          applyAutoDetect(result)
+        })
         .catch(() => {})
         .finally(() => autoPreviewing.current.delete(file.name))
     })
@@ -306,6 +318,46 @@ export default function ImportPage() {
     setFiles(prev => prev.filter(f => f.name !== name))
     setPendingExcels(prev => { const next = new Map(prev); next.delete(name); return next })
     setExcelRows(prev => { const next = new Map(prev); next.delete(name); return next })
+  }
+
+  const openFileOrgEdit = (filename: string) => {
+    const edit    = savedEdits.get(filename)
+    const cached  = previewCache.get(filename)
+    const orgId   = edit?.guId   || cached?.gu_id  || selectedOrgId  || ''
+    const deptId  = edit?.deptId || cached?.suggested_dept_id?.toString() || selectedDeptId || ''
+    setFileEditOrgId(orgId)
+    setFileEditDeptId(deptId)
+    setFileEditOrgSearch('')
+    setFileEditDeptSearch('')
+    setFileEditDepts([])
+    setFileEditingOrg(filename)
+    if (orgId) {
+      setFileEditDeptsLoading(true)
+      getDepartments(orgId)
+        .then(setFileEditDepts)
+        .catch(() => setFileEditDepts([]))
+        .finally(() => setFileEditDeptsLoading(false))
+    }
+  }
+
+  const saveFileOrgEdit = (filename: string) => {
+    const cached      = previewCache.get(filename)
+    const existingEdit = savedEdits.get(filename)
+    const selectedDept = fileEditDepts.find(d => String(d.id) === fileEditDeptId)
+    const emptyData    = { general_provisions: '', tasks: [], authorities_rights: [], authorities_responsibilities: [], functions: [], additions: '' }
+    const data         = existingEdit?.data || cached?.data || emptyData
+    setSavedEdits(prev => {
+      const next = new Map(prev)
+      next.set(filename, {
+        ...(existingEdit ?? {}),
+        data,
+        guId:     fileEditOrgId,
+        deptId:   fileEditDeptId || undefined,
+        deptName: selectedDept?.name || existingEdit?.deptName || '',
+      })
+      return next
+    })
+    setFileEditingOrg(null)
   }
 
   const handleAttachExcel = async (docxName: string, xlsxFile: File) => {
@@ -492,7 +544,8 @@ export default function ImportPage() {
         const edit = savedEdits.get(f.name)
         const preview = previewCache.get(f.name)
         const guId = selectedOrgId || edit?.guId || preview?.gu_id || ''
-        const guName = preview?.gu_name ?? ''
+        const guName = (edit?.guId ? orgs.find(o => String(o.id) === edit.guId)?.name : undefined)
+          || preview?.gu_name || ''
         if (!guId) {
           allResults.push({ filename: f.name, status: 'error', error: 'Организация не определена' })
           continue
@@ -503,9 +556,14 @@ export default function ImportPage() {
           continue
         }
         try {
-          const deptIdRaw = edit?.deptId || preview?.suggested_dept_id
-          const deptIdNum = deptIdRaw ? Number(deptIdRaw) : undefined
-          const deptNameStr = preview?.suggested_dept_name ?? ''
+          // If operator explicitly reviewed/edited the file (savedEdits entry exists),
+          // respect their exact choice for dept. Only fall back to auto-detected
+          // suggested_dept_id when no review has been done at all.
+          const deptIdRaw  = edit !== undefined ? edit.deptId : (preview?.suggested_dept_id)
+          const deptIdNum  = deptIdRaw ? Number(deptIdRaw) : undefined
+          const deptNameStr = edit !== undefined
+            ? (edit.deptName || (deptIdRaw ? (preview?.suggested_dept_name ?? '') : ''))
+            : (preview?.suggested_dept_name ?? '')
           await saveDraft(guId, data, f.name, guName, excelRows.get(f.name), deptIdNum, deptNameStr)
           allResults.push({ filename: f.name, status: 'success' })
         } catch (err: any) {
@@ -969,9 +1027,7 @@ export default function ImportPage() {
                   const hasWarning = !isReviewed && !hasError && cached && cached.warnings.length > 0
                   const edit = savedEdits.get(f.name)
                   const displayGuName = cached?.gu_name || (edit?.guId ? orgs.find(o => String(o.id) === edit.guId)?.name : undefined)
-                  const displayDeptName = (levelType === 'otdel')
-                    ? (edit?.deptName || cached?.suggested_dept_name)
-                    : undefined
+                  const displayDeptName = edit?.deptName || cached?.suggested_dept_name || undefined
                   return (
                     <div key={f.name} className="px-3.5 py-2.5 transition-colors"
                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
@@ -1006,19 +1062,142 @@ export default function ImportPage() {
                           <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
                       </div>
-                      {/* Meta: GU + dept */}
-                      {(displayGuName || displayDeptName) && (
-                        <div className="ml-8 mt-1 flex flex-col gap-0.5">
-                          {displayGuName && (
-                            <div className="flex items-start gap-1">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="w-2.5 h-2.5 shrink-0 mt-0.5 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-                              <span className="text-[10px] leading-snug" style={{ color: 'var(--text-3)' }}>{displayGuName}</span>
-                            </div>
-                          )}
-                          {displayDeptName && (
-                            <div className="flex items-start gap-1 ml-3">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="w-2.5 h-2.5 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--gov-blue, #3772ff)', opacity: 0.7 }}><polyline points="9 18 15 12 9 6"/></svg>
-                              <span className="text-[10px] leading-snug font-medium" style={{ color: 'var(--gov-blue, #3772ff)', opacity: 0.85 }}>{displayDeptName}</span>
+                      {/* Meta: GU + dept + inline editor */}
+                      {cached && (
+                        <div className="ml-8 mt-1">
+                          {/* Display row */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {displayGuName && (
+                              <div className="flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-2.5 h-2.5 opacity-40 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                                <span className="text-[10px] leading-snug" style={{ color: 'var(--text-3)' }}>{displayGuName}</span>
+                              </div>
+                            )}
+                            {displayDeptName && (
+                              <div className="flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#3772ff', opacity: 0.7 }}><polyline points="9 18 15 12 9 6"/></svg>
+                                <span className="text-[10px] leading-snug font-medium" style={{ color: '#3772ff', opacity: 0.85 }}>{displayDeptName}</span>
+                              </div>
+                            )}
+                            {/* Edit toggle button */}
+                            <button
+                              onClick={() => fileEditingOrg === f.name ? setFileEditingOrg(null) : openFileOrgEdit(f.name)}
+                              title="Изменить ГУ / Отдел"
+                              className="flex items-center gap-0.5 text-[9.5px] font-medium px-1.5 py-0.5 rounded-md transition-all"
+                              style={fileEditingOrg === f.name
+                                ? { background: 'rgba(55,114,255,0.18)', color: '#93b4ff', border: '1px solid rgba(55,114,255,0.35)' }
+                                : { background: 'var(--surface-1)', color: 'var(--text-4)', border: '1px solid var(--border)' }}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                              {fileEditingOrg === f.name ? 'Закрыть' : 'Изменить'}
+                            </button>
+                          </div>
+
+                          {/* Inline editor */}
+                          {fileEditingOrg === f.name && (
+                            <div className="mt-2 p-2.5 rounded-lg space-y-2" style={{ background: 'var(--surface-1)', border: '1px solid var(--border-md)' }}>
+                              {/* GU selector */}
+                              <div>
+                                <p className="text-[9.5px] font-semibold mb-1 uppercase tracking-wider" style={{ color: 'var(--text-4)' }}>Управление (ГУ)</p>
+                                <input
+                                  value={fileEditOrgSearch}
+                                  onChange={e => setFileEditOrgSearch(e.target.value)}
+                                  placeholder="Поиск организации…"
+                                  className="w-full text-[10px] px-2 py-1.5 rounded-md outline-none mb-1"
+                                  style={{ background: 'var(--surface-0)', color: 'var(--text-1)', border: '1px solid var(--border-md)' }}
+                                />
+                                <div className="max-h-28 overflow-y-auto rounded-md" style={{ border: '1px solid var(--border)' }}>
+                                  {orgs
+                                    .filter(o => !fileEditOrgSearch || o.name.toLowerCase().includes(fileEditOrgSearch.toLowerCase()))
+                                    .map(o => (
+                                      <button
+                                        key={o.id}
+                                        onClick={() => {
+                                          const id = String(o.id)
+                                          setFileEditOrgId(id)
+                                          setFileEditOrgSearch('')
+                                          setFileEditDeptId('')
+                                          setFileEditDepts([])
+                                          setFileEditDeptsLoading(true)
+                                          getDepartments(id)
+                                            .then(setFileEditDepts)
+                                            .catch(() => setFileEditDepts([]))
+                                            .finally(() => setFileEditDeptsLoading(false))
+                                        }}
+                                        className="w-full text-left text-[10px] px-2 py-1.5 transition-colors"
+                                        style={{
+                                          background: fileEditOrgId === String(o.id) ? 'rgba(55,114,255,0.15)' : 'var(--surface-0)',
+                                          color: fileEditOrgId === String(o.id) ? '#93b4ff' : 'var(--text-2)',
+                                          borderBottom: '1px solid var(--divide)',
+                                        }}
+                                      >
+                                        {o.name}
+                                      </button>
+                                    ))}
+                                </div>
+                              </div>
+
+                              {/* Dept selector — only if org is selected */}
+                              {fileEditOrgId && (
+                                <div>
+                                  <p className="text-[9.5px] font-semibold mb-1 uppercase tracking-wider" style={{ color: 'var(--text-4)' }}>Отдел</p>
+                                  {fileEditDeptsLoading ? (
+                                    <p className="text-[10px]" style={{ color: 'var(--text-4)' }}>Загрузка…</p>
+                                  ) : (
+                                    <>
+                                      <input
+                                        value={fileEditDeptSearch}
+                                        onChange={e => setFileEditDeptSearch(e.target.value)}
+                                        placeholder="Поиск отдела…"
+                                        className="w-full text-[10px] px-2 py-1.5 rounded-md outline-none mb-1"
+                                        style={{ background: 'var(--surface-0)', color: 'var(--text-1)', border: '1px solid var(--border-md)' }}
+                                      />
+                                      <div className="max-h-28 overflow-y-auto rounded-md" style={{ border: '1px solid var(--border)' }}>
+                                        <button
+                                          onClick={() => setFileEditDeptId('')}
+                                          className="w-full text-left text-[10px] px-2 py-1.5 italic transition-colors"
+                                          style={{
+                                            background: !fileEditDeptId ? 'rgba(55,114,255,0.15)' : 'var(--surface-0)',
+                                            color: !fileEditDeptId ? '#93b4ff' : 'var(--text-4)',
+                                            borderBottom: '1px solid var(--divide)',
+                                          }}
+                                        >— Управление (без отдела) —</button>
+                                        {fileEditDepts
+                                          .filter(d => !fileEditDeptSearch || d.name.toLowerCase().includes(fileEditDeptSearch.toLowerCase()))
+                                          .map(d => (
+                                            <button
+                                              key={d.id}
+                                              onClick={() => setFileEditDeptId(String(d.id))}
+                                              className="w-full text-left text-[10px] px-2 py-1.5 transition-colors"
+                                              style={{
+                                                background: fileEditDeptId === String(d.id) ? 'rgba(55,114,255,0.15)' : 'var(--surface-0)',
+                                                color: fileEditDeptId === String(d.id) ? '#93b4ff' : 'var(--text-2)',
+                                                borderBottom: '1px solid var(--divide)',
+                                              }}
+                                            >
+                                              {d.name}
+                                            </button>
+                                          ))}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Save button */}
+                              <button
+                                onClick={() => saveFileOrgEdit(f.name)}
+                                disabled={!fileEditOrgId}
+                                className="w-full text-[10px] font-semibold py-1.5 rounded-md transition-all"
+                                style={{
+                                  background: fileEditOrgId ? 'rgba(55,114,255,0.18)' : 'var(--surface-0)',
+                                  color: fileEditOrgId ? '#93b4ff' : 'var(--text-4)',
+                                  border: '1px solid rgba(55,114,255,0.3)',
+                                  opacity: fileEditOrgId ? 1 : 0.5,
+                                }}
+                              >
+                                Применить
+                              </button>
                             </div>
                           )}
                         </div>
