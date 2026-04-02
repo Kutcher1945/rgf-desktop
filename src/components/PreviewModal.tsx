@@ -936,7 +936,12 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
 
                   <div className="bg-white divide-y divide-gov-grey-light">
                     {items.map((item, i) => {
-                      const excelRowMatch = key === 'functions' && localExcelRows.length > 0 ? matchExcelRow(item, localExcelRows, i) : undefined
+                      let excelRowMatch = key === 'functions' && localExcelRows.length > 0 ? matchExcelRow(item, localExcelRows, i) : undefined
+                      // Positional fallback: if text matching failed but Excel has a row at this index, use it
+                      // (operators typically fill Excel in the same order as the Положение functions)
+                      if (!excelRowMatch && key === 'functions' && i < localExcelRows.length) {
+                        excelRowMatch = localExcelRows[i]
+                      }
                       const excelRowIdx = excelRowMatch ? localExcelRows.indexOf(excelRowMatch) : -1
                       const excelRow = excelRowIdx >= 0 ? localExcelRows[excelRowIdx] : undefined
                       // When no Excel file loaded, use per-function metadata

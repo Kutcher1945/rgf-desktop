@@ -379,10 +379,31 @@ export default function ImportPage() {
     } catch {}
   }
 
+  const autoLinkXlsx = (allFiles: FileList | File[]) => {
+    const arr = Array.from(allFiles)
+    const docxFiles = arr.filter(f => f.name.toLowerCase().endsWith('.docx'))
+    const xlsxFiles = arr.filter(f => f.name.toLowerCase().endsWith('.xlsx'))
+    if (!xlsxFiles.length || !docxFiles.length) return
+    xlsxFiles.forEach(xlsxFile => {
+      let target: File | undefined
+      if (docxFiles.length === 1) {
+        target = docxFiles[0]
+      } else {
+        const xlsxBase = xlsxFile.name.toLowerCase().replace(/\.[^.]+$/, '')
+        target = docxFiles.find(d => {
+          const docxBase = d.name.toLowerCase().replace(/\.[^.]+$/, '')
+          return docxBase.includes(xlsxBase.slice(0, 8)) || xlsxBase.includes(docxBase.slice(0, 8))
+        }) ?? docxFiles[0]
+      }
+      if (target) handleAttachExcel(target.name, xlsxFile)
+    })
+  }
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
     addFiles(e.dataTransfer.files)
+    autoLinkXlsx(e.dataTransfer.files)
   }, [addFiles])
 
   const applyAutoDetect = (result: PreviewResult) => {
@@ -1019,7 +1040,7 @@ export default function ImportPage() {
             <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>Перетащите .docx файлы сюда</p>
             <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-4)' }}>или кликните для выбора</p>
             <input ref={fileInputRef} type="file" accept=".docx" multiple className="hidden"
-              onChange={e => addFiles(e.target.files)} />
+              onChange={e => { addFiles(e.target.files); if (e.target.files) autoLinkXlsx(e.target.files) }} />
           </div>
 
           {/* File list */}
