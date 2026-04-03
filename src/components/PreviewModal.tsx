@@ -781,8 +781,26 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
   const updateItem = (key: ListKey, idx: number, value: string) =>
     setEditData(prev => { const arr = [...prev[key]]; arr[idx] = value; return { ...prev, [key]: arr } })
 
-  const deleteItem = (key: ListKey, idx: number) =>
+  const deleteItem = (key: ListKey, idx: number) => {
+    // When a task is deleted, clear task_name in any excel/meta rows that referenced it
+    if (key === 'tasks') {
+      const removedTask = editData.tasks[idx]
+      if (removedTask?.trim()) {
+        setLocalExcelRows(prev => prev.map(row =>
+          row.task_name === removedTask ? { ...row, task_name: '' } : row
+        ))
+        setFnExcelMeta(prev => {
+          const next = { ...prev }
+          Object.keys(next).forEach(k => {
+            const i = Number(k)
+            if (next[i]?.task_name === removedTask) next[i] = { ...next[i], task_name: '' }
+          })
+          return next
+        })
+      }
+    }
     setEditData(prev => ({ ...prev, [key]: prev[key].filter((_, i) => i !== idx) }))
+  }
 
   const addItem = (key: ListKey) =>
     setEditData(prev => ({ ...prev, [key]: [...prev[key], ''] }))
