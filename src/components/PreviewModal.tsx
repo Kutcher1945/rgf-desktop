@@ -613,13 +613,15 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
         // Match a name against a list: exact → full contains → word overlap
         const fuzzyMatch = (items: DictItem[], name: string): DictItem | undefined => {
           if (!name) return undefined
-          const n = name.toLowerCase().trim()
+          // Strip leading number prefix like "3 Организация..." or "01 Государственные..."
+          const n = name.toLowerCase().trim().replace(/^\d+[\s.\)]+/, '')
+          const norm = (s: string) => s.toLowerCase().trim().replace(/^\d+[\s.\)]+/, '')
           // 1. exact
-          let m = items.find(x => x.name.toLowerCase().trim() === n)
+          let m = items.find(x => norm(x.name) === n)
           if (m) return m
           // 2. one contains the other (full string, no slicing)
           m = items.find(x => {
-            const xn = x.name.toLowerCase().trim()
+            const xn = norm(x.name)
             return xn.includes(n) || n.includes(xn)
           })
           if (m) return m
@@ -629,7 +631,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
           let best: DictItem | undefined
           let bestScore = 0
           for (const x of items) {
-            const xn = x.name.toLowerCase()
+            const xn = norm(x.name)
             const score = words.filter(w => xn.includes(w)).length
             if (score > bestScore) { bestScore = score; best = x }
           }
@@ -790,12 +792,14 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
     // synchronously, so onExcelRowsChange would see a null ref if called after.
     if (onExcelRowsChange) {
       const allRows = editData.functions.map((fnText, i) => {
-        // Prefer localExcelRows match (covers both uploaded excel and previously saved meta).
+        // Prefer localExcelRows match (text-based).
         if (localExcelRows.length > 0) {
           const matched = matchExcelRow(fnText, localExcelRows, i)
           if (matched) return matched
         }
-        // Fall back to manually entered meta (only when no localExcelRows match)
+        // Positional fallback — same logic as render: Excel row i → function i
+        if (localExcelRows.length > i) return localExcelRows[i]
+        // Fall back to manually entered meta (only when no localExcelRows at all)
         if (fnExcelMeta[i]) return fnExcelMeta[i]
         return createDefaultExcelRow(fnText)
       })
