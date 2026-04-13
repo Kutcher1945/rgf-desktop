@@ -596,7 +596,8 @@ export default function ImportPage() {
           const deptNameStr = edit !== undefined
             ? (edit.deptName || (deptIdRaw ? (preview?.suggested_dept_name ?? '') : ''))
             : (preview?.suggested_dept_name ?? '')
-          await saveDraft(guId, data, f.name, guName, excelRows.get(f.name), deptIdNum, deptNameStr)
+          await saveDraft(guId, data, f.name, guName, excelRows.get(f.name), deptIdNum, deptNameStr,
+            preview?.stats?.confidence, preview?.warnings)
           allResults.push({ filename: f.name, status: 'success' })
         } catch (err: any) {
           allResults.push({ filename: f.name, status: 'error', error: err.message })

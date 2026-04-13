@@ -186,7 +186,7 @@ export interface PreviewResult {
   parent_position_record_id?: number
   /** planning.gov.kz record ID of an already-existing Отдел (type=5) for this department */
   existing_position_record_id?: number
-  stats: { rights: number; responsibilities: number; tasks: number; functions: number }
+  stats: { rights: number; responsibilities: number; tasks: number; functions: number; confidence?: number }
   issues: string[]
   warnings: string[]
   can_import: boolean
@@ -445,11 +445,22 @@ export async function syncDicts(): Promise<{ ok: boolean; synced: Record<string,
   return res.json()
 }
 
-export async function saveDraft(guId: string, data: PreviewData, filename?: string, guName?: string, excelRows?: ExcelFunctionRow[], deptId?: number | null, deptName?: string): Promise<{ success: boolean; id: number }> {
+export async function saveDraft(
+  guId: string, data: PreviewData, filename?: string, guName?: string,
+  excelRows?: ExcelFunctionRow[], deptId?: number | null, deptName?: string,
+  parseConfidence?: number, parseWarnings?: string[],
+): Promise<{ success: boolean; id: number }> {
   const res = await tauriFetch(`${BASE}/api/rgf/save-draft/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ gu_id: guId, gu_name: guName ?? '', filename: filename ?? '', ...data, excel_rows: excelRows ?? [], dept_id: deptId ?? null, dept_name: deptName ?? '' }),
+    body: JSON.stringify({
+      gu_id: guId, gu_name: guName ?? '', filename: filename ?? '',
+      ...data,
+      excel_rows: excelRows ?? [],
+      dept_id: deptId ?? null, dept_name: deptName ?? '',
+      parse_confidence: parseConfidence ?? null,
+      parse_warnings: parseWarnings ?? [],
+    }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
