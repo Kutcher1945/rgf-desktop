@@ -119,6 +119,7 @@ export interface ImportedRecord {
   gu_name: string
   dept_id?: number | null
   dept_name?: string
+  doc_type?: number | null
   status: 'success' | 'skipped' | 'error' | 'pending'
   draft_status: DraftStatus
   skip_reason?: string
@@ -206,7 +207,7 @@ export interface ParsedImportResult {
   functions_failed?: number
 }
 
-export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string, departmentId?: number, existingPositionRecordId?: number, parentPositionRecordId?: number, excelRows?: ExcelFunctionRow[]): Promise<ParsedImportResult> {
+export async function importParsed(guId: string, data: PreviewData, filename?: string, guName?: string, departmentId?: number, existingPositionRecordId?: number, parentPositionRecordId?: number, excelRows?: ExcelFunctionRow[], docType?: 3 | 4 | 5): Promise<ParsedImportResult> {
   const res = await tauriFetch(`${BASE}/api/rgf/import-parsed/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -217,6 +218,7 @@ export async function importParsed(guId: string, data: PreviewData, filename?: s
       ...(departmentId ? { department_id: departmentId } : {}),
       ...(existingPositionRecordId ? { existing_position_record_id: existingPositionRecordId } : {}),
       ...(parentPositionRecordId ? { parent_position_record_id: parentPositionRecordId } : {}),
+      ...(docType ? { doc_type: docType } : {}),
       ...data,
       excel_rows: excelRows ?? [],
     }),
@@ -448,7 +450,7 @@ export async function syncDicts(): Promise<{ ok: boolean; synced: Record<string,
 export async function saveDraft(
   guId: string, data: PreviewData, filename?: string, guName?: string,
   excelRows?: ExcelFunctionRow[], deptId?: number | null, deptName?: string,
-  parseConfidence?: number, parseWarnings?: string[],
+  parseConfidence?: number, parseWarnings?: string[], docType?: number | null,
 ): Promise<{ success: boolean; id: number }> {
   const res = await tauriFetch(`${BASE}/api/rgf/save-draft/`, {
     method: 'POST',
@@ -460,6 +462,7 @@ export async function saveDraft(
       dept_id: deptId ?? null, dept_name: deptName ?? '',
       parse_confidence: parseConfidence ?? null,
       parse_warnings: parseWarnings ?? [],
+      ...(docType ? { doc_type: docType } : {}),
     }),
   })
   if (!res.ok) {
@@ -556,4 +559,16 @@ export async function updateDraftStatus(draftId: number, draftStatus: DraftStatu
     throw new Error((err as any).error || `HTTP ${res.status}`)
   }
   return res.json()
+}
+
+export async function pingPlanning(): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const res = await tauriFetch(`${BASE}/api/rgf/ping/`, {
+      headers: { ...authHeaders() },
+    })
+    if (res.status === 401) return { ok: false, reason: 'not_authenticated' }
+    return res.json()
+  } catch {
+    return { ok: true }  // network errors shouldn't falsely trigger session-expired banner
+  }
 }

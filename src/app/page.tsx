@@ -6,7 +6,7 @@ import {
   importParsed, saveDraft, submitDraft, previewDocument, getRecords, getAuditLog,
   uploadDepartmentExcel, getDepartmentExcelTemplateUrl, parseExcelFile,
   browseRecords, updateDraftStatus, updateDraftExcel, updateDraftData, getDicts,
-  deleteDraft, restoreDraft,
+  deleteDraft, restoreDraft, pingPlanning,
 } from '@/lib/api'
 import type { Department, Org, ImportResult, PreviewResult, PreviewData, ImportedRecord, AuditLogEntry, ExcelFunctionRow, PositionDepartmentItem, DraftStatus, Dicts, DictItem } from '@/lib/api'
 import PreviewModal from '@/components/PreviewModal'
@@ -122,6 +122,8 @@ export default function ImportPage() {
   const [importing, setImporting] = useState(false)
   const [results, setResults] = useState<ImportResult[] | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [sessionExpired, setSessionExpired] = useState(false)
+  const [sessionChecked, setSessionChecked] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState<string | null>(null)
@@ -183,8 +185,8 @@ export default function ImportPage() {
   const [orgDropOpen, setOrgDropOpen] = useState(false)
   const orgDropRef = useRef<HTMLDivElement>(null)
 
-  // Level selector: Управление vs Отдел
-  const [levelType, setLevelType] = useState<'gu' | 'otdel'>('gu')
+  // Level selector: Департамент vs Управление vs Отдел
+  const [levelType, setLevelType] = useState<'dept' | 'gu' | 'otdel'>('gu')
   const [departments, setDepartments] = useState<Department[]>([])
   const [selectedDeptId, setSelectedDeptId] = useState('')
   const [deptsLoading, setDeptsLoading] = useState(false)
@@ -278,9 +280,21 @@ export default function ImportPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [deptDropOpen])
 
-  // Fetch departments whenever org selection changes in Отдел mode
+  // Poll planning.gov.kz session validity every 60s — detect when another user logs in
   useEffect(() => {
-    if (levelType !== 'otdel' || !selectedOrgId) {
+    const check = async () => {
+      const result = await pingPlanning()
+      setSessionChecked(true)
+      setSessionExpired(!result.ok && result.reason === 'session_expired')
+    }
+    check()
+    const id = setInterval(check, 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Fetch departments whenever org selection changes in Отдел/Департамент modes
+  useEffect(() => {
+    if ((levelType !== 'otdel' && levelType !== 'dept') || !selectedOrgId) {
       setDepartments([])
       setSelectedDeptId('')
       return
@@ -481,6 +495,7 @@ export default function ImportPage() {
     const total = editedFiles.length + rawFiles.length
     const allResults: ImportResult[] = []
     let current = 0
+    const docType = levelType === 'dept' ? 1 : levelType === 'gu' ? 4 : 5
 
     setImportProgress({ current: 0, total, filename: '' })
 
@@ -491,7 +506,7 @@ export default function ImportPage() {
         const { data, guId, deptId: savedDeptId } = savedEdits.get(f.name)!
         const effectiveGuId = selectedOrgId || guId
         const effectiveDeptId = savedDeptId || previewCache.get(f.name)?.suggested_dept_id
-          || (levelType === 'otdel' ? selectedDeptId : '')
+          || (levelType === 'otdel' || levelType === 'dept' ? selectedDeptId : '')
         const deptId = effectiveDeptId ? Number(effectiveDeptId) : undefined
         // Upload pending xlsx if attached and dept is known
         const pendingXlsx = pendingExcels.get(f.name)
@@ -506,7 +521,7 @@ export default function ImportPage() {
             const guName = cached?.gu_name ?? ''
             const existingPid = cached?.existing_position_record_id
             const parentPid = cached?.parent_position_record_id
-            const r = await importParsed(effectiveGuId, data, f.name, guName, deptId, existingPid, parentPid, excelRows.get(f.name))
+            const r = await importParsed(effectiveGuId, data, f.name, guName, deptId, existingPid, parentPid, excelRows.get(f.name), docType as 3 | 4 | 5)
             allResults.push({ filename: f.name, ...r })
           } catch (err: any) {
             allResults.push({ filename: f.name, status: 'error', error: err.message })
@@ -520,7 +535,7 @@ export default function ImportPage() {
         setImportProgress({ current, total, filename: f.name })
         const cached = previewCache.get(f.name)
         const effectiveDeptId = cached?.suggested_dept_id
-          || (levelType === 'otdel' ? selectedDeptId : '')
+          || (levelType === 'otdel' || levelType === 'dept' ? selectedDeptId : '')
         const deptId = effectiveDeptId ? Number(effectiveDeptId) : undefined
         // Upload pending xlsx if attached and dept is known
         const pendingXlsx = pendingExcels.get(f.name)
@@ -535,7 +550,7 @@ export default function ImportPage() {
           const parentPid = cached.parent_position_record_id
           const existingPid = cached.existing_position_record_id
           try {
-            const r = await importParsed(effectiveGuId, cached.data, f.name, guName, deptId, existingPid, parentPid, excelRows.get(f.name))
+            const r = await importParsed(effectiveGuId, cached.data, f.name, guName, deptId, existingPid, parentPid, excelRows.get(f.name), docType as 3 | 4 | 5)
             allResults.push({ filename: f.name, ...r })
           } catch (err: any) {
             allResults.push({ filename: f.name, status: 'error', error: err.message })
@@ -596,8 +611,9 @@ export default function ImportPage() {
           const deptNameStr = edit !== undefined
             ? (edit.deptName || (deptIdRaw ? (preview?.suggested_dept_name ?? '') : ''))
             : (preview?.suggested_dept_name ?? '')
+          const saveDocType = levelType === 'dept' ? 1 : levelType === 'gu' ? 4 : 5
           await saveDraft(guId, data, f.name, guName, excelRows.get(f.name), deptIdNum, deptNameStr,
-            preview?.stats?.confidence, preview?.warnings)
+            preview?.stats?.confidence, preview?.warnings, saveDocType)
           allResults.push({ filename: f.name, status: 'success' })
         } catch (err: any) {
           allResults.push({ filename: f.name, status: 'error', error: err.message })
@@ -707,7 +723,28 @@ export default function ImportPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-56px)] overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-56px)] overflow-hidden">
+
+      {/* ── Session status banner (always visible after first check) ── */}
+      {sessionChecked && (
+        <div className="shrink-0 flex items-center gap-2.5 px-4 py-1.5"
+             style={sessionExpired
+               ? { background: 'rgba(239,68,68,0.10)', borderBottom: '1px solid rgba(239,68,68,0.3)' }
+               : { background: 'rgba(16,185,129,0.07)', borderBottom: '1px solid rgba(16,185,129,0.2)' }}>
+          {/* Dot indicator */}
+          <span className="w-2 h-2 rounded-full shrink-0"
+                style={{ background: sessionExpired ? '#f87171' : '#34d399',
+                         boxShadow: sessionExpired ? '0 0 6px rgba(239,68,68,0.6)' : '0 0 6px rgba(52,211,153,0.6)' }} />
+          <span className="text-[11px] font-medium"
+                style={{ color: sessionExpired ? '#fca5a5' : '#6ee7b7' }}>
+            {sessionExpired
+              ? 'Сессия planning.gov.kz завершена — возможно, выполнен вход с другого устройства. Импорт недоступен.'
+              : 'Сессия planning.gov.kz активна'}
+          </span>
+        </div>
+      )}
+
+      <div className="flex flex-1 overflow-hidden">
 
       {/* ══════════════════════ LEFT PANEL ════════════════════════ */}
       <div className="w-[390px] shrink-0 border-r flex flex-col"
@@ -735,7 +772,7 @@ export default function ImportPage() {
               Уровень
             </label>
             <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border-md)', background: 'var(--surface-0)' }}>
-              {(['gu', 'otdel'] as const).map(level => (
+              {(['dept', 'gu', 'otdel'] as const).map(level => (
                 <button
                   key={level}
                   type="button"
@@ -750,7 +787,7 @@ export default function ImportPage() {
                     borderBottom: '2px solid transparent',
                   }}
                 >
-                  {level === 'gu' ? 'Управление' : 'Отдел'}
+                  {level === 'dept' ? 'Департамент' : level === 'gu' ? 'Управление' : 'Отдел'}
                 </button>
               ))}
             </div>
@@ -759,7 +796,7 @@ export default function ImportPage() {
           {/* Org selector */}
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-3)' }}>
-              {levelType === 'otdel' ? 'Управление (родитель)' : 'Организация'}
+              {levelType === 'otdel' ? 'Управление (родитель)' : levelType === 'dept' ? 'Департамент' : 'Организация'}
             </label>
             <div className="relative" ref={orgDropRef}>
               {/* Trigger button */}
@@ -867,15 +904,15 @@ export default function ImportPage() {
             </div>
           </div>
 
-          {/* Department selector (Отдел mode only) */}
-          {levelType === 'otdel' && (
+          {/* Department selector (Отдел and Департамент modes) */}
+          {(levelType === 'otdel' || levelType === 'dept') && (
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-3)' }}>
-                Отдел
+                {levelType === 'dept' ? 'Подразделение' : 'Отдел'}
               </label>
               {!selectedOrgId ? (
                 <div className="px-3 py-2 rounded-lg text-[11px]" style={{ color: 'var(--text-4)', background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
-                  Сначала выберите Управление
+                  {levelType === 'dept' ? 'Сначала выберите организацию' : 'Сначала выберите Управление'}
                 </div>
               ) : deptsLoading ? (
                 <div className="px-3 py-2 rounded-lg text-[11px] flex items-center gap-2" style={{ color: 'var(--text-4)', background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
@@ -1726,9 +1763,11 @@ export default function ImportPage() {
                                 {r.was_edited && (
                                   <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>Изменено оператором</span>
                                 )}
-                                {r.dept_id
-                                  ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(55,114,255,0.12)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.2)' }}>Отдел: {r.dept_name || r.dept_id}</span>
-                                  : <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}>Управление</span>
+                                {r.doc_type === 1
+                                  ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.25)' }}>Департамент: {r.dept_name || r.dept_id}</span>
+                                  : r.dept_id
+                                    ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(55,114,255,0.12)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.2)' }}>Отдел: {r.dept_name || r.dept_id}</span>
+                                    : <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}>Управление</span>
                                 }
                               </div>
                               <span className="text-[10px] leading-snug block mt-0.5" style={{ color: 'var(--text-3)' }}>{r.gu_name || r.gu_id || '—'}</span>
@@ -2231,9 +2270,11 @@ export default function ImportPage() {
                                   {r.was_edited && (
                                     <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>Изменено оператором</span>
                                   )}
-                                  {r.dept_id
-                                    ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(55,114,255,0.12)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.2)' }}>Отдел: {r.dept_name || r.dept_id}</span>
-                                    : <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}>Управление</span>
+                                  {r.doc_type === 1
+                                    ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.25)' }}>Департамент: {r.dept_name || r.dept_id}</span>
+                                    : r.dept_id
+                                      ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(55,114,255,0.12)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.2)' }}>Отдел: {r.dept_name || r.dept_id}</span>
+                                      : <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}>Управление</span>
                                   }
                                 </div>
                               </td>
@@ -2646,6 +2687,8 @@ export default function ImportPage() {
           }}
         />
       )}
+
+      </div>{/* end flex inner row */}
 
       {/* ── Toast notification ── */}
       {toast && (

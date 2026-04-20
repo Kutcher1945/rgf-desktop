@@ -8,7 +8,7 @@ interface Props {
   result: PreviewResult
   guId?: string
   orgs?: Org[]
-  levelType?: 'gu' | 'otdel'
+  levelType?: 'dept' | 'gu' | 'otdel'
   departments?: Department[]
   deptId?: string
   savedData?: PreviewData       // previously saved edits, if any
@@ -581,6 +581,22 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
   const [selectedGuId, setSelectedGuId] = useState<string>(guId ?? gu_id ?? '')
   const [selectedDeptId, setSelectedDeptId] = useState<string>(deptId ?? '')
   const [localDepts, setLocalDepts] = useState<Department[]>([])
+  const [orgSearch, setOrgSearch] = useState('')
+  const [orgDropOpen, setOrgDropOpen] = useState(false)
+  const [deptSearch, setDeptSearch] = useState('')
+  const [deptDropOpen, setDeptDropOpen] = useState(false)
+  const orgDropRef = useRef<HTMLDivElement>(null)
+  const deptDropRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (orgDropRef.current && !orgDropRef.current.contains(e.target as Node)) setOrgDropOpen(false)
+      if (deptDropRef.current && !deptDropRef.current.contains(e.target as Node)) setDeptDropOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
   // Editable local copy of excel rows
   const [localExcelRows, setLocalExcelRows] = useState<ExcelFunctionRow[]>(() => excelRows ? [...excelRows] : [])
   // Whether excel was originally provided (vs user-entered metadata)
@@ -843,20 +859,57 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
               <div className="min-w-0 flex-1">
                 <p className="text-white font-semibold text-sm truncate">{filename}</p>
                 {orgs && orgs.length > 0 ? (
-                  <select
-                    value={selectedGuId}
-                    onChange={e => setSelectedGuId(e.target.value)}
-                    className="mt-1 w-full bg-white/10 hover:bg-white/15 border border-white/20 focus:border-white/40 outline-none rounded-lg px-2 py-1 text-xs text-white/80 focus:text-white transition-all appearance-none cursor-pointer"
-                  >
-                    <option value="" className="bg-gov-navy text-white">
-                      {levelType === 'otdel' ? '— Управление (родитель) —' : '— Организация не выбрана —'}
-                    </option>
-                    {orgs.map(org => (
-                      <option key={org.id} value={String(org.id)} className="bg-gov-navy text-white">
-                        {org.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative mt-1" ref={orgDropRef}>
+                    <button
+                      type="button"
+                      onClick={() => { setOrgDropOpen(v => !v); setOrgSearch('') }}
+                      className="w-full flex items-center justify-between bg-white/10 hover:bg-white/15 border border-white/20 rounded-lg px-2 py-1 text-xs text-left transition-all"
+                      style={{ color: selectedGuId ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.4)' }}
+                    >
+                      <span className="truncate">
+                        {selectedGuId
+                          ? (orgs.find(o => String(o.id) === selectedGuId)?.name ?? '—')
+                          : (levelType === 'otdel' ? '— Управление (родитель) —' : levelType === 'dept' ? '— Департамент не выбран —' : '— Организация не выбрана —')}
+                      </span>
+                      <svg className="w-3 h-3 shrink-0 ml-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
+                      </svg>
+                    </button>
+                    {orgDropOpen && (
+                      <div className="absolute z-[200] mt-1 w-full rounded-xl overflow-hidden shadow-xl"
+                           style={{ background: '#0f1c2e', border: '1px solid rgba(255,255,255,0.15)', minWidth: 260 }}>
+                        <div className="p-1.5 border-b" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+                          <input
+                            autoFocus
+                            type="text"
+                            value={orgSearch}
+                            onChange={e => setOrgSearch(e.target.value)}
+                            placeholder="Поиск организации..."
+                            className="w-full px-2 py-1 rounded-lg text-xs outline-none"
+                            style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.85)', border: '1px solid rgba(255,255,255,0.12)' }}
+                          />
+                        </div>
+                        <div className="max-h-52 overflow-y-auto py-1">
+                          {orgs
+                            .filter(o => !orgSearch || o.name.toLowerCase().includes(orgSearch.toLowerCase()))
+                            .map(org => (
+                              <button key={org.id} type="button"
+                                      onClick={() => { setSelectedGuId(String(org.id)); setOrgDropOpen(false); setOrgSearch('') }}
+                                      className="w-full text-left px-3 py-1.5 text-xs transition-colors truncate"
+                                      style={{ color: String(org.id) === selectedGuId ? '#60a5fa' : 'rgba(255,255,255,0.75)',
+                                               background: String(org.id) === selectedGuId ? 'rgba(55,114,255,0.15)' : 'transparent' }}
+                                      onMouseEnter={e => { if (String(org.id) !== selectedGuId) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
+                                      onMouseLeave={e => { if (String(org.id) !== selectedGuId) (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+                                {org.name}
+                              </button>
+                            ))}
+                          {orgs.filter(o => !orgSearch || o.name.toLowerCase().includes(orgSearch.toLowerCase())).length === 0 && (
+                            <p className="px-3 py-2 text-xs text-center" style={{ color: 'rgba(255,255,255,0.3)' }}>Ничего не найдено</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <p className="text-gov-navy-light/60 text-xs mt-0.5 truncate">
                     {gu_name || effectiveGuId || 'Организация не определена'}
@@ -864,18 +917,57 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
                 )}
 
                 {levelType === 'otdel' && localDepts.length > 0 && (
-                  <select
-                    value={selectedDeptId}
-                    onChange={e => setSelectedDeptId(e.target.value)}
-                    className="mt-1.5 w-full bg-white/10 hover:bg-white/15 border border-white/20 focus:border-white/40 outline-none rounded-lg px-2 py-1 text-xs text-white/80 focus:text-white transition-all appearance-none cursor-pointer"
-                  >
-                    <option value="" className="bg-gov-navy text-white">— Отдел не выбран —</option>
-                    {localDepts.map(dept => (
-                      <option key={dept.id} value={String(dept.id)} className="bg-gov-navy text-white">
-                        {dept.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative mt-1.5" ref={deptDropRef}>
+                    <button
+                      type="button"
+                      onClick={() => { setDeptDropOpen(v => !v); setDeptSearch('') }}
+                      className="w-full flex items-center justify-between bg-white/10 hover:bg-white/15 border border-white/20 rounded-lg px-2 py-1 text-xs text-left transition-all"
+                      style={{ color: selectedDeptId ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.4)' }}
+                    >
+                      <span className="truncate">
+                        {selectedDeptId
+                          ? (localDepts.find(d => String(d.id) === selectedDeptId)?.name ?? '—')
+                          : '— Отдел не выбран —'}
+                      </span>
+                      <svg className="w-3 h-3 shrink-0 ml-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
+                      </svg>
+                    </button>
+                    {deptDropOpen && (
+                      <div className="absolute z-[200] mt-1 w-full rounded-xl overflow-hidden shadow-xl"
+                           style={{ background: '#0f1c2e', border: '1px solid rgba(255,255,255,0.15)', minWidth: 260 }}>
+                        <div className="p-1.5 border-b" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+                          <input
+                            autoFocus
+                            type="text"
+                            value={deptSearch}
+                            onChange={e => setDeptSearch(e.target.value)}
+                            placeholder="Поиск отдела..."
+                            className="w-full px-2 py-1 rounded-lg text-xs outline-none"
+                            style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.85)', border: '1px solid rgba(255,255,255,0.12)' }}
+                          />
+                        </div>
+                        <div className="max-h-52 overflow-y-auto py-1">
+                          {localDepts
+                            .filter(d => !deptSearch || d.name.toLowerCase().includes(deptSearch.toLowerCase()))
+                            .map(dept => (
+                              <button key={dept.id} type="button"
+                                      onClick={() => { setSelectedDeptId(String(dept.id)); setDeptDropOpen(false); setDeptSearch('') }}
+                                      className="w-full text-left px-3 py-1.5 text-xs transition-colors truncate"
+                                      style={{ color: String(dept.id) === selectedDeptId ? '#60a5fa' : 'rgba(255,255,255,0.75)',
+                                               background: String(dept.id) === selectedDeptId ? 'rgba(55,114,255,0.15)' : 'transparent' }}
+                                      onMouseEnter={e => { if (String(dept.id) !== selectedDeptId) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
+                                      onMouseLeave={e => { if (String(dept.id) !== selectedDeptId) (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+                                {dept.name}
+                              </button>
+                            ))}
+                          {localDepts.filter(d => !deptSearch || d.name.toLowerCase().includes(deptSearch.toLowerCase())).length === 0 && (
+                            <p className="px-3 py-2 text-xs text-center" style={{ color: 'rgba(255,255,255,0.3)' }}>Ничего не найдено</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
                 {levelType === 'otdel' && (result.parent_position_record_id || result.existing_position_record_id) && (
                   <div className="flex items-center gap-3 mt-1.5 flex-wrap">
