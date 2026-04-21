@@ -183,6 +183,8 @@ export interface PreviewResult {
   detected_source: string | null
   suggested_dept_id?: string
   suggested_dept_name?: string
+  suggested_dept_unit_id?: number | null
+  suggested_dept_unit_name?: string | null
   /** planning.gov.kz record ID of the parent Управление (type=4) — needed as positionDepartmentId for Отдел creation */
   parent_position_record_id?: number
   /** planning.gov.kz record ID of an already-existing Отдел (type=5) for this department */
@@ -260,6 +262,12 @@ export async function getOrganizations(): Promise<Org[]> {
 
 export async function getDepartments(guId: string | number): Promise<Department[]> {
   const res = await tauriFetch(`${BASE}/api/rgf/organizations/${guId}/departments/`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export async function getDeptUnits(): Promise<Department[]> {
+  const res = await tauriFetch(`${BASE}/api/rgf/dept-units/`, { headers: authHeaders() })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }

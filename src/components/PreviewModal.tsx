@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { getDepartments, getDicts } from '@/lib/api'
+import { getDepartments, getDeptUnits, getDicts } from '@/lib/api'
 import type { Org, Department, PreviewResult, PreviewData, ExcelFunctionRow, Dicts, DictItem } from '@/lib/api'
 
 interface Props {
@@ -722,8 +722,13 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
     }))
 
   useEffect(() => {
-    if (levelType !== 'otdel' || !selectedGuId) { setLocalDepts([]); return }
-    getDepartments(selectedGuId).then(setLocalDepts).catch(() => setLocalDepts([]))
+    if (levelType === 'dept') {
+      getDeptUnits().then(setLocalDepts).catch(() => setLocalDepts([]))
+    } else if (levelType === 'otdel' && selectedGuId) {
+      getDepartments(selectedGuId).then(setLocalDepts).catch(() => setLocalDepts([]))
+    } else {
+      setLocalDepts([])
+    }
   }, [selectedGuId, levelType])
 
   // Initialise from savedData (if user re-opens a file they already edited) or original parsed data
@@ -839,7 +844,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
       })
       onExcelRowsChange(allRows)
     }
-    onSave(editData, selectedGuId, levelType === 'otdel' ? selectedDeptId : undefined)
+    onSave(editData, selectedGuId, (levelType === 'otdel' || levelType === 'dept') ? selectedDeptId : undefined)
   }
 
   return (
@@ -858,7 +863,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-white font-semibold text-sm truncate">{filename}</p>
-                {orgs && orgs.length > 0 ? (
+                {orgs && orgs.length > 0 && levelType !== 'dept' ? (
                   <div className="relative mt-1" ref={orgDropRef}>
                     <button
                       type="button"
@@ -869,7 +874,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
                       <span className="truncate">
                         {selectedGuId
                           ? (orgs.find(o => String(o.id) === selectedGuId)?.name ?? '—')
-                          : (levelType === 'otdel' ? '— Управление (родитель) —' : levelType === 'dept' ? '— Департамент не выбран —' : '— Организация не выбрана —')}
+                          : (levelType === 'otdel' ? '— Управление (родитель) —' : '— Организация не выбрана —')}
                       </span>
                       <svg className="w-3 h-3 shrink-0 ml-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
@@ -916,7 +921,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
                   </p>
                 )}
 
-                {levelType === 'otdel' && localDepts.length > 0 && (
+                {(levelType === 'otdel' || levelType === 'dept') && localDepts.length > 0 && (
                   <div className="relative mt-1.5" ref={deptDropRef}>
                     <button
                       type="button"
@@ -927,7 +932,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
                       <span className="truncate">
                         {selectedDeptId
                           ? (localDepts.find(d => String(d.id) === selectedDeptId)?.name ?? '—')
-                          : '— Отдел не выбран —'}
+                          : levelType === 'dept' ? '— Выберите департамент —' : '— Отдел не выбран —'}
                       </span>
                       <svg className="w-3 h-3 shrink-0 ml-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
@@ -942,7 +947,7 @@ export default function PreviewModal({ result, guId, orgs, levelType, deptId, sa
                             type="text"
                             value={deptSearch}
                             onChange={e => setDeptSearch(e.target.value)}
-                            placeholder="Поиск отдела..."
+                            placeholder={levelType === 'dept' ? 'Поиск департамента...' : 'Поиск отдела...'}
                             className="w-full px-2 py-1 rounded-lg text-xs outline-none"
                             style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.85)', border: '1px solid rgba(255,255,255,0.12)' }}
                           />

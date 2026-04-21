@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, Fragment } from 'react'
 import {
-  aiAnalyzeDocument, getDepartments, getOrganizations, importDocuments,
+  aiAnalyzeDocument, getDepartments, getDeptUnits, getOrganizations, importDocuments,
   importParsed, saveDraft, submitDraft, previewDocument, getRecords, getAuditLog,
   uploadDepartmentExcel, getDepartmentExcelTemplateUrl, parseExcelFile,
   browseRecords, updateDraftStatus, updateDraftExcel, updateDraftData, getDicts,
@@ -174,7 +174,7 @@ export default function ImportPage() {
   const [deletedRecords, setDeletedRecords]       = useState<ImportedRecord[]>([])
   const [loadingDeleted, setLoadingDeleted]       = useState(false)
   const [submittingDraftId, setSubmittingDraftId] = useState<number | null>(null)
-  const [regType, setRegType] = useState<3 | 4 | 5>(4)
+  const [regType, setRegType] = useState<1 | 4 | 5>(4)
   const [regItems, setRegItems] = useState<PositionDepartmentItem[]>([])
   const [regLoading, setRegLoading] = useState(false)
   const [regError, setRegError] = useState<string | null>(null)
@@ -234,7 +234,7 @@ export default function ImportPage() {
       .finally(() => setAuditLoading(false))
   }, [])
 
-  const fetchRegistry = useCallback((type: 3 | 4 | 5) => {
+  const fetchRegistry = useCallback((type: 1 | 4 | 5) => {
     setRegLoading(true); setRegError(null)
     browseRecords(type)
       .then(r => setRegItems(r.content ?? []))
@@ -292,9 +292,28 @@ export default function ImportPage() {
     return () => clearInterval(id)
   }, [])
 
-  // Fetch departments whenever org selection changes in Отдел/Департамент modes
+  // Fetch departments whenever org selection / level type changes
   useEffect(() => {
-    if ((levelType !== 'otdel' && levelType !== 'dept') || !selectedOrgId) {
+    if (levelType === 'dept') {
+      // Département (type=1): dept list from dict-org-struct/department, no guId needed
+      setDeptsLoading(true)
+      setSelectedDeptId('')
+      getDeptUnits()
+        .then(depts => {
+          setDepartments(depts)
+          if (pendingDeptNameRef.current) {
+            const name = pendingDeptNameRef.current
+            pendingDeptNameRef.current = ''
+            const found = depts.find(d => d.name === name)
+              || depts.find(d => d.name.toLowerCase().includes(name.toLowerCase().slice(0, 30)))
+            if (found) setSelectedDeptId(String(found.id))
+          }
+        })
+        .catch(() => setDepartments([]))
+        .finally(() => setDeptsLoading(false))
+      return
+    }
+    if (levelType !== 'otdel' || !selectedOrgId) {
       setDepartments([])
       setSelectedDeptId('')
       return
@@ -426,10 +445,13 @@ export default function ImportPage() {
       setSelectedOrgId(result.gu_id)
     }
     // If the backend detected an Отдел, switch to otdel mode and select it
-    // (always override dept so each previewed file selects its own Отдел)
     if (result.suggested_dept_id) {
       if (levelType !== 'otdel') setLevelType('otdel')
       setSelectedDeptId(result.suggested_dept_id)
+    }
+    // In Департамент mode, auto-select the matched dept unit
+    if (levelType === 'dept' && result.suggested_dept_unit_id) {
+      setSelectedDeptId(String(result.suggested_dept_unit_id))
     }
   }
 
@@ -505,7 +527,10 @@ export default function ImportPage() {
         setImportProgress({ current, total, filename: f.name })
         const { data, guId, deptId: savedDeptId } = savedEdits.get(f.name)!
         const effectiveGuId = selectedOrgId || guId
-        const effectiveDeptId = savedDeptId || previewCache.get(f.name)?.suggested_dept_id
+        const cached0 = previewCache.get(f.name)
+        const effectiveDeptId = savedDeptId
+          || cached0?.suggested_dept_unit_id?.toString()
+          || cached0?.suggested_dept_id
           || (levelType === 'otdel' || levelType === 'dept' ? selectedDeptId : '')
         const deptId = effectiveDeptId ? Number(effectiveDeptId) : undefined
         // Upload pending xlsx if attached and dept is known
@@ -517,10 +542,9 @@ export default function ImportPage() {
           allResults.push({ filename: f.name, status: 'error', error: 'Организация не определена' })
         } else {
           try {
-            const cached = previewCache.get(f.name)
-            const guName = cached?.gu_name ?? ''
-            const existingPid = cached?.existing_position_record_id
-            const parentPid = cached?.parent_position_record_id
+            const guName = cached0?.gu_name ?? ''
+            const existingPid = cached0?.existing_position_record_id
+            const parentPid = cached0?.parent_position_record_id
             const r = await importParsed(effectiveGuId, data, f.name, guName, deptId, existingPid, parentPid, excelRows.get(f.name), docType as 3 | 4 | 5)
             allResults.push({ filename: f.name, ...r })
           } catch (err: any) {
@@ -534,7 +558,8 @@ export default function ImportPage() {
         current++
         setImportProgress({ current, total, filename: f.name })
         const cached = previewCache.get(f.name)
-        const effectiveDeptId = cached?.suggested_dept_id
+        const effectiveDeptId = cached?.suggested_dept_unit_id?.toString()
+          || cached?.suggested_dept_id
           || (levelType === 'otdel' || levelType === 'dept' ? selectedDeptId : '')
         const deptId = effectiveDeptId ? Number(effectiveDeptId) : undefined
         // Upload pending xlsx if attached and dept is known
@@ -543,8 +568,8 @@ export default function ImportPage() {
           try { await uploadDepartmentExcel(deptId, pendingXlsx) } catch {}
         }
         // If preview cache exists, use importParsed so parent_position_record_id is passed correctly.
-        // Without this, importDocuments ignores the preview cache and positionDepartmentId defaults to 762 → stored as 0.
-        if (cached?.data && (cached.gu_id || selectedOrgId)) {
+        // dept mode (type=1) has no GU — pass empty string, backend handles it.
+        if (cached?.data && (cached.gu_id || selectedOrgId || levelType === 'dept')) {
           const effectiveGuId = selectedOrgId || cached.gu_id || ''
           const guName = cached.gu_name ?? ''
           const parentPid = cached.parent_position_record_id
@@ -593,7 +618,7 @@ export default function ImportPage() {
         const guId = selectedOrgId || edit?.guId || preview?.gu_id || ''
         const guName = (edit?.guId ? orgs.find(o => String(o.id) === edit.guId)?.name : undefined)
           || preview?.gu_name || ''
-        if (!guId) {
+        if (!guId && levelType !== 'dept') {
           allResults.push({ filename: f.name, status: 'error', error: 'Организация не определена' })
           continue
         }
@@ -606,11 +631,11 @@ export default function ImportPage() {
           // If operator explicitly reviewed/edited the file (savedEdits entry exists),
           // respect their exact choice for dept. Only fall back to auto-detected
           // suggested_dept_id when no review has been done at all.
-          const deptIdRaw  = edit !== undefined ? edit.deptId : (preview?.suggested_dept_id)
+          const deptIdRaw  = edit !== undefined ? edit.deptId : (preview?.suggested_dept_unit_id?.toString() || preview?.suggested_dept_id)
           const deptIdNum  = deptIdRaw ? Number(deptIdRaw) : undefined
           const deptNameStr = edit !== undefined
-            ? (edit.deptName || (deptIdRaw ? (preview?.suggested_dept_name ?? '') : ''))
-            : (preview?.suggested_dept_name ?? '')
+            ? (edit.deptName || (deptIdRaw ? (preview?.suggested_dept_unit_name ?? preview?.suggested_dept_name ?? '') : ''))
+            : (preview?.suggested_dept_unit_name ?? preview?.suggested_dept_name ?? '')
           const saveDocType = levelType === 'dept' ? 1 : levelType === 'gu' ? 4 : 5
           await saveDraft(guId, data, f.name, guName, excelRows.get(f.name), deptIdNum, deptNameStr,
             preview?.stats?.confidence, preview?.warnings, saveDocType)
@@ -793,10 +818,10 @@ export default function ImportPage() {
             </div>
           </div>
 
-          {/* Org selector */}
-          <div>
+          {/* Org selector — hidden in Департамент mode (guId auto-detected from document) */}
+          {levelType !== 'dept' && <div>
             <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-3)' }}>
-              {levelType === 'otdel' ? 'Управление (родитель)' : levelType === 'dept' ? 'Департамент' : 'Организация'}
+              {levelType === 'otdel' ? 'Управление (родитель)' : 'Организация'}
             </label>
             <div className="relative" ref={orgDropRef}>
               {/* Trigger button */}
@@ -902,17 +927,17 @@ export default function ImportPage() {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
 
           {/* Department selector (Отдел and Департамент modes) */}
           {(levelType === 'otdel' || levelType === 'dept') && (
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-3)' }}>
-                {levelType === 'dept' ? 'Подразделение' : 'Отдел'}
+                {levelType === 'dept' ? 'Департаменты' : 'Отдел'}
               </label>
-              {!selectedOrgId ? (
+              {!selectedOrgId && levelType !== 'dept' ? (
                 <div className="px-3 py-2 rounded-lg text-[11px]" style={{ color: 'var(--text-4)', background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
-                  {levelType === 'dept' ? 'Сначала выберите организацию' : 'Сначала выберите Управление'}
+                  Сначала выберите Управление
                 </div>
               ) : deptsLoading ? (
                 <div className="px-3 py-2 rounded-lg text-[11px] flex items-center gap-2" style={{ color: 'var(--text-4)', background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
@@ -935,7 +960,7 @@ export default function ImportPage() {
                     <span className="truncate text-left">
                       {selectedDeptId
                         ? (departments.find(d => String(d.id) === selectedDeptId)?.name ?? '—')
-                        : '— Выберите отдел —'}
+                        : levelType === 'dept' ? '— Определить автоматически —' : '— Выберите отдел —'}
                     </span>
                     <svg className="w-3.5 h-3.5 shrink-0 ml-2 transition-transform" style={{ color: 'var(--text-4)', transform: deptDropOpen ? 'rotate(180deg)' : 'none' }}
                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -959,6 +984,20 @@ export default function ImportPage() {
                         </div>
                       </div>
                       <div className="max-h-56 overflow-y-auto py-1">
+                        {(deptSearch === '' || '— определить автоматически —'.includes(deptSearch.toLowerCase())) && (
+                          <button type="button"
+                                  onClick={() => { setSelectedDeptId(''); setDeptDropOpen(false); setDeptSearch('') }}
+                                  className="w-full text-left px-3 py-2 text-[12px] transition-colors"
+                                  style={{
+                                    color: selectedDeptId === '' ? '#3772ff' : 'var(--text-3)',
+                                    background: selectedDeptId === '' ? 'rgba(55,114,255,0.08)' : 'transparent',
+                                    fontStyle: 'italic',
+                                  }}
+                                  onMouseEnter={e => { if (selectedDeptId !== '') (e.currentTarget as HTMLElement).style.background = 'var(--surface-hover)' }}
+                                  onMouseLeave={e => { if (selectedDeptId !== '') (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+                            — Определить автоматически —
+                          </button>
+                        )}
                         {departments
                           .filter(d => d.name.toLowerCase().includes(deptSearch.toLowerCase()))
                           .map(dept => (
@@ -1097,7 +1136,11 @@ export default function ImportPage() {
                   const hasWarning = !isReviewed && !hasError && cached && cached.warnings.length > 0
                   const edit = savedEdits.get(f.name)
                   const displayGuName = cached?.gu_name || (edit?.guId ? orgs.find(o => String(o.id) === edit.guId)?.name : undefined)
-                  const displayDeptName = edit?.deptName || cached?.suggested_dept_name || undefined
+                  const displayDeptName = edit?.deptName
+                    || cached?.suggested_dept_unit_name
+                    || cached?.suggested_dept_name
+                    || (levelType === 'dept' && selectedDeptId ? departments.find(d => String(d.id) === selectedDeptId)?.name : undefined)
+                    || undefined
                   return (
                     <div key={f.name} className="px-3.5 py-2.5 transition-colors"
                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
@@ -1985,9 +2028,9 @@ export default function ImportPage() {
                                   }
                                   editingDraftIdRef.current = r.id
                                   setEditingDraftId(r.id)
-                                  // Set dept: store name for resolution after depts load, or resolve from already-loaded list
+                                  const draftLevel = r.doc_type === 1 ? 'dept' : (r.doc_type === 5 || r.dept_id) ? 'otdel' : 'gu'
                                   if (r.dept_name) {
-                                    const alreadyLoaded = selectedOrgId === r.gu_id && levelType === 'otdel' && departments.length > 0
+                                    const alreadyLoaded = selectedOrgId === r.gu_id && levelType === draftLevel && departments.length > 0
                                     if (alreadyLoaded) {
                                       const found = departments.find(d => d.name === r.dept_name)
                                         || departments.find(d => d.name.toLowerCase().includes((r.dept_name ?? '').toLowerCase().slice(0, 30)))
@@ -1996,9 +2039,15 @@ export default function ImportPage() {
                                       pendingDeptNameRef.current = r.dept_name
                                     }
                                   }
-                                  if (levelType !== 'otdel') setLevelType('otdel')
+                                  if (levelType !== draftLevel) setLevelType(draftLevel as 'dept' | 'gu' | 'otdel')
                                   if (r.gu_id && r.gu_id !== selectedOrgId) setSelectedOrgId(r.gu_id)
-                                  setPreviewResult(preview)
+                                  setPreviewResult({
+                                    ...preview,
+                                    suggested_dept_unit_id: r.doc_type === 1 && r.dept_id ? r.dept_id : null,
+                                    suggested_dept_unit_name: r.doc_type === 1 && r.dept_name ? r.dept_name : null,
+                                    suggested_dept_id:   r.doc_type !== 1 && r.dept_id ? String(r.dept_id) : undefined,
+                                    suggested_dept_name: r.doc_type !== 1 && r.dept_name ? r.dept_name    : undefined,
+                                  })
                                 }}
                                 className="text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all"
                                 style={{ background: 'rgba(55,114,255,0.12)', color: '#93b4ff', border: '1px solid rgba(55,114,255,0.2)' }}
@@ -2352,9 +2401,9 @@ export default function ImportPage() {
                                       }
                                       editingDraftIdRef.current = r.id
                                       setEditingDraftId(r.id)
-                                      // Always show dept selector when editing a draft
+                                      const draftLevel = r.doc_type === 1 ? 'dept' : (r.doc_type === 5 || r.dept_id) ? 'otdel' : 'gu'
                                       if (r.dept_name) {
-                                        const alreadyLoaded = selectedOrgId === r.gu_id && levelType === 'otdel' && departments.length > 0
+                                        const alreadyLoaded = selectedOrgId === r.gu_id && levelType === draftLevel && departments.length > 0
                                         if (alreadyLoaded) {
                                           const found = departments.find(d => d.name === r.dept_name)
                                             || departments.find(d => d.name.toLowerCase().includes((r.dept_name ?? '').toLowerCase().slice(0, 30)))
@@ -2363,13 +2412,15 @@ export default function ImportPage() {
                                           pendingDeptNameRef.current = r.dept_name
                                         }
                                       }
-                                      if (levelType !== 'otdel') setLevelType('otdel')
+                                      if (levelType !== draftLevel) setLevelType(draftLevel as 'dept' | 'gu' | 'otdel')
                                       if (r.gu_id && r.gu_id !== selectedOrgId) setSelectedOrgId(r.gu_id)
                                       setPreviewResult({
                                         filename: r.filename, gu_id: r.gu_id || null, gu_name: r.gu_name || null,
                                         detected_source: null,
-                                        suggested_dept_id:   r.dept_id   ? String(r.dept_id)   : undefined,
-                                        suggested_dept_name: r.dept_name ? r.dept_name          : undefined,
+                                        suggested_dept_unit_id: r.doc_type === 1 && r.dept_id ? r.dept_id : null,
+                                        suggested_dept_unit_name: r.doc_type === 1 && r.dept_name ? r.dept_name : null,
+                                        suggested_dept_id:   r.doc_type !== 1 && r.dept_id ? String(r.dept_id) : undefined,
+                                        suggested_dept_name: r.doc_type !== 1 && r.dept_name ? r.dept_name    : undefined,
                                         stats: { rights: r.rights_count, responsibilities: r.responsibilities_count, tasks: r.tasks_count, functions: r.functions_count },
                                         issues: [], warnings: [], can_import: false,
                                         data: r.data ?? { general_provisions: '', tasks: [], authorities_rights: [], authorities_responsibilities: [], functions: [], additions: '' },
@@ -2512,7 +2563,7 @@ export default function ImportPage() {
                 <>
                   <div className="flex items-center gap-3 flex-wrap">
                     <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
-                      {([{ type: 3, label: 'Департамент' }, { type: 4, label: 'Управление' }, { type: 5, label: 'Отдел' }] as const).map(({ type, label }) => (
+                      {([{ type: 1, label: 'Департамент' }, { type: 4, label: 'Управление' }, { type: 5, label: 'Отдел' }] as const).map(({ type, label }) => (
                         <button key={type} onClick={() => { setRegType(type); fetchRegistry(type) }}
                           className="px-3 py-1 rounded-md text-[11px] font-semibold transition-all"
                           style={regType === type
@@ -2615,9 +2666,9 @@ export default function ImportPage() {
           result={previewResult}
           guId={savedEdits.get(previewResult.filename)?.guId || previewResult.gu_id || selectedOrgId || undefined}
           orgs={orgs}
-          levelType={editingDraftId !== null ? 'otdel' : levelType}
+          levelType={levelType}
           departments={departments.length > 0 ? departments : undefined}
-          deptId={savedEdits.get(previewResult.filename)?.deptId || previewResult.suggested_dept_id || selectedDeptId || undefined}
+          deptId={savedEdits.get(previewResult.filename)?.deptId || previewResult.suggested_dept_unit_id?.toString() || previewResult.suggested_dept_id || selectedDeptId || undefined}
           savedData={savedEdits.get(previewResult.filename)?.data}
           excelRows={excelRows.get(previewResult.filename)}
           onClose={() => { setPreviewResult(null); editingDraftIdRef.current = null; setEditingDraftId(null) }}
@@ -2641,7 +2692,10 @@ export default function ImportPage() {
             // Look up name: prefer departments list (correct GU), fall back to previewResult
             const resolvedDeptName = (resolvedDeptId
               ? departments.find(d => String(d.id) === resolvedDeptId)?.name
-              : undefined) || (resolvedDeptId === previewResult.suggested_dept_id ? previewResult.suggested_dept_name : undefined) || undefined
+              : undefined)
+              || (resolvedDeptId === previewResult.suggested_dept_id ? previewResult.suggested_dept_name : undefined)
+              || (resolvedDeptId === String(previewResult.suggested_dept_unit_id) ? (previewResult.suggested_dept_unit_name ?? undefined) : undefined)
+              || undefined
             setSavedEdits(prev => new Map(prev).set(previewResult.filename, {
               data,
               guId: guId || selectedOrgId || previewResult.gu_id || '',
