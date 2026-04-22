@@ -197,6 +197,9 @@ export default function ImportPage() {
   const deptDropRef = useRef<HTMLDivElement>(null)
   const [excelUploading, setExcelUploading] = useState(false)
 
+  // ── Draft level changer ──
+  const [changingLevelDraftId, setChangingLevelDraftId] = useState<number | null>(null)
+
   // ── Per-file GU/dept inline editor ──
   const [fileEditingOrg, setFileEditingOrg]         = useState<string | null>(null)
   const [fileEditOrgId, setFileEditOrgId]           = useState('')
@@ -1806,12 +1809,49 @@ export default function ImportPage() {
                                 {r.was_edited && (
                                   <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>Изменено оператором</span>
                                 )}
-                                {r.doc_type === 1
-                                  ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.25)' }}>Департамент: {r.dept_name || r.dept_id}</span>
-                                  : r.dept_id
-                                    ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(55,114,255,0.12)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.2)' }}>Отдел: {r.dept_name || r.dept_id}</span>
-                                    : <span className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}>Управление</span>
-                                }
+                                {/* Level badge — click to change */}
+                                {(() => {
+                                  const levelLabel = r.doc_type === 1 ? `Департамент${r.dept_name ? ': ' + r.dept_name : ''}` : r.dept_id ? `Отдел${r.dept_name ? ': ' + r.dept_name : ''}` : 'Управление'
+                                  const levelStyle = r.doc_type === 1
+                                    ? { background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.25)' }
+                                    : r.dept_id
+                                      ? { background: 'rgba(55,114,255,0.12)', color: '#60a5fa', border: '1px solid rgba(55,114,255,0.2)' }
+                                      : { background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }
+                                  return (
+                                    <button
+                                      onClick={() => setChangingLevelDraftId(changingLevelDraftId === r.id ? null : r.id)}
+                                      title="Изменить уровень"
+                                      className="text-[9px] font-semibold px-1 py-0.5 rounded cursor-pointer hover:opacity-70 transition-opacity"
+                                      style={levelStyle}
+                                    >{levelLabel} ✎</button>
+                                  )
+                                })()}
+                                {changingLevelDraftId === r.id && (
+                                  <div className="flex items-center gap-1 mt-1 w-full">
+                                    {([
+                                      { label: 'Департамент', dt: 1 },
+                                      { label: 'Управление',  dt: 4 },
+                                      { label: 'Отдел',       dt: 5 },
+                                    ] as const).map(({ label, dt }) => (
+                                      <button key={dt}
+                                        onClick={async () => {
+                                          try {
+                                            const d = r.data ?? { general_provisions: '', tasks: [], authorities_rights: [], authorities_responsibilities: [], functions: [], additions: '' }
+                                            await updateDraftData(r.id, { ...d, staff_numbers: r.data?.staff_numbers ?? 1 }, { deptId: dt === 4 ? null : (r.dept_id ?? null), deptName: dt === 4 ? '' : r.dept_name ?? '' }, dt)
+                                            setRecentRecords(prev => prev.map(rec => rec.id === r.id ? { ...rec, doc_type: dt, dept_id: dt === 4 ? undefined : rec.dept_id, dept_name: dt === 4 ? '' : rec.dept_name } : rec))
+                                            setChangingLevelDraftId(null)
+                                            showToast(`Уровень изменён на «${label}»`, 'warn')
+                                          } catch (e: any) { showToast(`Ошибка: ${e?.message}`, 'err') }
+                                        }}
+                                        className="text-[9px] font-semibold px-1.5 py-0.5 rounded transition-all"
+                                        style={r.doc_type === dt
+                                          ? { background: 'rgba(55,114,255,0.25)', color: '#93b4ff', border: '1px solid rgba(55,114,255,0.5)' }
+                                          : { background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border)' }}
+                                      >{label}</button>
+                                    ))}
+                                    <button onClick={() => setChangingLevelDraftId(null)} className="text-[9px] px-1 py-0.5 rounded" style={{ color: 'var(--text-4)' }}>✕</button>
+                                  </div>
+                                )}
                               </div>
                               <span className="text-[10px] leading-snug block mt-0.5" style={{ color: 'var(--text-3)' }}>{r.gu_name || r.gu_id || '—'}</span>
                             </td>
